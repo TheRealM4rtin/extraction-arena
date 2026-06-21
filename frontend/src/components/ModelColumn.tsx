@@ -40,7 +40,12 @@ export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProp
       style={{ '--winner-glow': `${accent}cc` } as React.CSSProperties}
     >
       <div className="my-1 flex flex-col items-center">
-        <AccuracyScore accuracy={done && score ? score.accuracy : 0} accent={accent} size={160} />
+        <AccuracyScore
+          accuracy={done && score ? score.accuracy : 0}
+          accent={accent}
+          size={160}
+          active={done && !!score}
+        />
         <p className="mt-1 text-xs text-muted-foreground">
           {score ? `${score.matched}/${score.total} exact` : '—'}
           {score ? ` · ${score.partialAccuracy}% partial` : ''}
