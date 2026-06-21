@@ -8,6 +8,7 @@ import { BottomDock } from '@/components/BottomDock';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { DatasetManager } from '@/components/DatasetManager';
 import { CreateDatasetDialog } from '@/components/CreateDatasetDialog';
+import { DatasetViewer } from '@/components/DatasetViewer';
 import { motion } from 'framer-motion';
 import { Database } from 'lucide-react';
 import { useExtraction } from '@/hooks/useExtraction';
@@ -86,6 +87,8 @@ export default function App() {
             )}
           </section>
         </main>
+
+        {active && <DatasetViewer />}
 
         <BottomDock
           onRun={handleRun}

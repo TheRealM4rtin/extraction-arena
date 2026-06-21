@@ -55,6 +55,18 @@ export function goldenFieldKeys(g: GoldenDataset): string[] {
   return Object.keys(g.golden_extraction);
 }
 
+/**
+ * Build a deeply-nested partial object that sets `value` at the given path.
+ * Used by the Dataset Viewer editor to produce a patch for `updateDataset`.
+ * e.g. buildNestedPatch(['golden', 'golden_extraction', 'foo', 'value'], 'x')
+ *   -> { golden: { golden_extraction: { foo: { value: 'x' } } } }
+ */
+export function buildNestedPatch(path: string[], value: unknown): Record<string, unknown> {
+  if (path.length === 0) throw new Error('buildNestedPatch: path must be non-empty');
+  const [head, ...rest] = path;
+  return { [head]: rest.length === 0 ? value : buildNestedPatch(rest, value) };
+}
+
 export function humanLabel(key: string): string {
   return key
     .replace(/_/g, ' ')
