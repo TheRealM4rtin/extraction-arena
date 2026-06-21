@@ -1,0 +1,30 @@
+{
+  "name": "cybertruck-extractor-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PDF -> PNG conversion + local Docling service (300 DPI) for the Cybertruck rescue-sheet evaluator",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.65",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^2.0.1",
+    "pdfjs-dist": "3.11.174"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.11",
+    "@types/node": "^20.14.0",
+    "tsx": "^4.15.7",
+    "typescript": "^5.5.3"
+  }
+}
