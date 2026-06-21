@@ -28,7 +28,7 @@ export function Header({ onOpenSettings }: HeaderProps) {
 
       <div className="flex items-center gap-4">
         <div className="hidden items-center gap-3 sm:flex">
-          <StatusDot label="Backend" color="#10B981" />
+          <StatusDot label="Dataset" color="#10B981" />
           <StatusDot label="GLM" color="#06B6D4" />
           <StatusDot label="GPT" color="#8B5CF6" />
           <StatusDot label="Docling" color="#F59E0B" />
