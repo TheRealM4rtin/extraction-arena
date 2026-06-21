@@ -140,10 +140,10 @@ export function ComparisonGrid() {
 function BestBadge({ accent }: { accent: string }) {
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.6, y: -6 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
+      initial={{ opacity: 0, scale: 0.6, y: -6, x: '-50%' }}
+      animate={{ opacity: 1, scale: 1, y: 0, x: '-50%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 18 }}
-      className="absolute -top-3 left-1/2 z-30 -translate-x-1/2"
+      className="absolute -top-3 left-1/2 z-30"
     >
       <div
         className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold text-black shadow-lg"
