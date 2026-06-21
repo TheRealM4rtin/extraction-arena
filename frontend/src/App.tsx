@@ -77,6 +77,7 @@ export default function App() {
           <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[340px]">
             <DatasetManager onNew={() => setCreateOpen(true)} />
             {active && <PageViewer />}
+            {active && <DatasetViewer />}
           </aside>
 
           <section className="min-w-0 flex-1">
@@ -87,8 +88,6 @@ export default function App() {
             )}
           </section>
         </main>
-
-        {active && <DatasetViewer />}
 
         <BottomDock
           onRun={handleRun}

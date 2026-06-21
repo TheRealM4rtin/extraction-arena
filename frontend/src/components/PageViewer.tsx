@@ -71,7 +71,7 @@ export function PageViewer() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.35 }}
-              className="max-h-[380px] w-full object-contain"
+              className="max-h-[240px] w-full object-contain"
             />
           </AnimatePresence>
           <span className="absolute right-2 top-2 rounded bg-background/80 px-2 py-0.5 font-mono text-[11px] text-cyan-300">
