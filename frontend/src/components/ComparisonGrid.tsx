@@ -7,7 +7,7 @@ import { FieldDiffList } from './FieldDiff';
 import { AccuracyScore } from './AccuracyScore';
 import { Badge } from '@/components/ui/badge';
 import { scoreDataset } from '@/lib/scoring';
-import { useAppStore } from '@/store';
+import { useAppStore, type ModelKey } from '@/store';
 import { cn, formatMs } from '@/lib/utils';
 
 interface ColumnDef {
@@ -29,6 +29,8 @@ export function ComparisonGrid() {
   const gpt = useAppStore((s) => s.gpt);
   const docling = useAppStore((s) => s.docling);
   const golden = useAppStore((s) => s.active?.golden ?? null);
+  const enabledModels = useAppStore((s) => s.enabledModels);
+  const toggleModel = useAppStore((s) => s.toggleModel);
 
   const [widths, setWidths] = useState<number[]>([1, 1, 1, 1]);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -42,10 +44,11 @@ export function ComparisonGrid() {
     docling: scoreOf(docling.extracted)?.accuracy ?? 0,
   };
 
+  // Only enabled + done models participate in the BEST badge.
   const doneModels: Array<'glm' | 'gpt' | 'docling'> = [];
-  if (glm.status === 'done') doneModels.push('glm');
-  if (gpt.status === 'done') doneModels.push('gpt');
-  if (docling.status === 'done') doneModels.push('docling');
+  if (enabledModels.glm && glm.status === 'done') doneModels.push('glm');
+  if (enabledModels.gpt && gpt.status === 'done') doneModels.push('gpt');
+  if (enabledModels.docling && docling.status === 'done') doneModels.push('docling');
 
   let winner: 'glm' | 'gpt' | 'docling' | null = null;
   if (doneModels.length > 0) {
@@ -88,8 +91,11 @@ export function ComparisonGrid() {
     >
       {COLUMNS.map((col, i) => {
         const flex = `${(widths[i] / total) * 100}%`;
+        const modelKey = col.key as ModelKey | 'gt';
+        const isModel = modelKey !== 'gt';
+        const enabled = isModel ? enabledModels[modelKey] : true;
         const showBadge =
-          winner === col.key && scores[col.key as 'glm' | 'gpt' | 'docling'] > 0;
+          isModel && winner === modelKey && scores[modelKey] > 0;
         return (
           <div key={col.key} style={{ width: flex }} className="flex min-w-0">
             <div className="relative flex w-full min-w-0 flex-col">
@@ -97,6 +103,8 @@ export function ComparisonGrid() {
                 label={col.label}
                 accent={col.accent}
                 index={i}
+                enabled={enabled}
+                onToggle={isModel ? () => toggleModel(modelKey) : undefined}
                 badge={showBadge ? <BestBadge accent={col.accent} /> : null}
               >
                 {col.key === 'gt' && <GoldenColumn />}
@@ -151,12 +159,16 @@ function ColumnShell({
   label,
   accent,
   index,
+  enabled = true,
+  onToggle,
   badge,
   children,
 }: {
   label: string;
   accent: string;
   index: number;
+  enabled?: boolean;
+  onToggle?: () => void;
   badge?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -165,21 +177,88 @@ function ColumnShell({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1, duration: 0.5 }}
-      className={cn('relative flex h-full min-h-0 flex-col rounded-2xl glass')}
-      style={{ borderColor: `${accent}40` }}
+      className={cn(
+        'relative flex h-full min-h-0 flex-col rounded-2xl glass transition-opacity duration-300',
+        !enabled && 'opacity-60'
+      )}
+      style={{ borderColor: `${accent}${enabled ? '40' : '1A'}` }}
     >
       {badge}
       <div
         className="flex shrink-0 items-center gap-2 rounded-t-2xl px-4 py-3"
-        style={{ background: `${accent}14` }}
+        style={{ background: `${accent}${enabled ? '14' : '0A'}` }}
       >
-        <span className="h-2.5 w-2.5 rounded-full" style={{ background: accent, boxShadow: `0 0 10px ${accent}` }} />
-        <h2 className="text-sm font-bold uppercase tracking-wider" style={{ color: accent }}>
+        <span
+          className="h-2.5 w-2.5 rounded-full"
+          style={{
+            background: accent,
+            boxShadow: enabled ? `0 0 10px ${accent}` : 'none',
+            opacity: enabled ? 1 : 0.4,
+          }}
+        />
+        <h2
+          className="flex-1 text-sm font-bold uppercase tracking-wider transition-opacity"
+          style={{ color: accent, opacity: enabled ? 1 : 0.55 }}
+        >
           {label}
         </h2>
+        {onToggle && (
+          <ColumnToggle
+            enabled={enabled}
+            onToggle={onToggle}
+            accent={accent}
+            label={label}
+          />
+        )}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      <div
+        className={cn(
+          'min-h-0 flex-1 overflow-y-auto transition-opacity duration-300',
+          !enabled && 'pointer-events-none opacity-30 saturate-50'
+        )}
+      >
+        {children}
+      </div>
     </motion.div>
+  );
+}
+
+/**
+ * Accent-colored toggle switch rendered in the top-right of model column headers.
+ * When on, the track fills with the column's accent color; when off, it falls back
+ * to the muted input surface. The thumb slides right when enabled.
+ */
+function ColumnToggle({
+  enabled,
+  onToggle,
+  accent,
+  label,
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+  accent: string;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={`${enabled ? 'Disable' : 'Enable'} ${label} column`}
+      title={enabled ? 'Disable model' : 'Enable model'}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggle();
+      }}
+      className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      style={{ background: enabled ? accent : 'hsl(240 4% 16%)' }}
+    >
+      <span
+        className="pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform duration-200"
+        style={{ transform: enabled ? 'translateX(16px)' : 'translateX(0)' }}
+      />
+    </button>
   );
 }
 
