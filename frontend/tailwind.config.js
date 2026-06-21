@@ -1,0 +1,100 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  darkMode: ['class'],
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  theme: {
+    container: {
+      center: true,
+      padding: '2rem',
+      screens: { '2xl': '1400px' },
+    },
+    extend: {
+      colors: {
+        // shadcn-style HSL CSS variable tokens; values live in index.css.
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+        secondary: {
+          DEFAULT: 'hsl(var(--secondary))',
+          foreground: 'hsl(var(--secondary-foreground))',
+        },
+        popover: {
+          DEFAULT: 'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
+        },
+        muted: {
+          DEFAULT: 'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        accent: {
+          DEFAULT: 'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        destructive: {
+          DEFAULT: 'hsl(var(--destructive))',
+          foreground: 'hsl(var(--destructive-foreground))',
+        },
+        card: {
+          DEFAULT: 'hsl(var(--card))',
+          foreground: 'hsl(var(--card-foreground))',
+        },
+        // Per-column accent palette (fixed repo convention).
+        gt: {
+          DEFAULT: '#10B981',
+          soft: 'rgba(16,185,129,0.12)',
+        },
+        glm: {
+          DEFAULT: '#06B6D4',
+          soft: 'rgba(6,182,212,0.12)',
+        },
+        gpt: {
+          DEFAULT: '#8B5CF6',
+          soft: 'rgba(139,92,246,0.12)',
+        },
+        ocr: {
+          DEFAULT: '#F59E0B',
+          soft: 'rgba(245,158,11,0.12)',
+        },
+      },
+      fontFamily: {
+        sans: ['"Inter Variable"', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      borderRadius: {
+        lg: 'var(--radius)',
+        md: 'calc(var(--radius) - 2px)',
+        sm: 'calc(var(--radius) - 4px)',
+      },
+      keyframes: {
+        'accordion-down': {
+          from: { height: '0' },
+          to: { height: 'var(--radix-accordion-content-height)' },
+        },
+        'accordion-up': {
+          from: { height: 'var(--radix-accordion-content-height)' },
+          to: { height: '0' },
+        },
+        breathe: {
+          '0%, 100%': { boxShadow: '0 0 0 0 rgba(6,182,212,0.25)' },
+          '50%': { boxShadow: '0 0 0 8px rgba(6,182,212,0)' },
+        },
+        shimmer: {
+          '100%': { transform: 'translateX(100%)' },
+        },
+      },
+      animation: {
+        'accordion-down': 'accordion-down 0.2s ease-out',
+        'accordion-up': 'accordion-up 0.2s ease-out',
+        breathe: 'breathe 2.4s ease-in-out infinite',
+        shimmer: 'shimmer 0.8s ease-out',
+      },
+    },
+  },
+  plugins: [require('tailwindcss-animate')],
+};
