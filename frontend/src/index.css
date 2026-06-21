@@ -139,10 +139,4 @@
   .text-balance {
     text-wrap: balance;
   }
-
-  /* Hide content outside the 16:9 safe zone during demo recording. */
-  .recording-safe {
-    outline: 2px dashed rgba(239, 68, 68, 0.5);
-    outline-offset: -16px;
-  }
 }

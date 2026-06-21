@@ -38,9 +38,6 @@ interface AppState {
   gpt: ModelResult;
   docling: DoclingResult;
 
-  // UI
-  recordingMode: boolean;
-
   // Catalog actions
   loadCatalog: () => Promise<void>;
   createDataset: (input: {
@@ -57,7 +54,6 @@ interface AppState {
   // Keys / UI
   setZaiKey: (k: string) => void;
   setOpenaiKey: (k: string) => void;
-  setRecordingMode: (on: boolean) => void;
 
   // Results
   setGlm: (r: ModelResult) => void;
@@ -100,8 +96,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
   gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
   docling: { ...idleDocling },
-
-  recordingMode: false,
 
   loadCatalog: async () => {
     set({ catalogLoading: true });
@@ -155,7 +149,6 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setZaiKey: (zaiKey) => set({ zaiKey }),
   setOpenaiKey: (openaiKey) => set({ openaiKey }),
-  setRecordingMode: (recordingMode) => set({ recordingMode }),
 
   setGlm: (glm) => set({ glm }),
   setGpt: (gpt) => set({ gpt }),

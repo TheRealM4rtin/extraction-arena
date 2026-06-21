@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { Settings, CircleDot } from 'lucide-react';
-import { useAppStore } from '@/store';
 import { Button } from '@/components/ui/button';
 
 interface HeaderProps {
@@ -9,7 +8,6 @@ interface HeaderProps {
 
 /** Fixed top bar: gradient logo, live clock, and per-service status dots. */
 export function Header({ onOpenSettings }: HeaderProps) {
-  const recordingMode = useAppStore((s) => s.recordingMode);
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -26,11 +24,6 @@ export function Header({ onOpenSettings }: HeaderProps) {
         <h1 className="bg-gradient-to-r from-cyan-300 via-violet-300 to-emerald-300 bg-clip-text text-xl font-extrabold tracking-tight text-transparent">
           Extraction Arena
         </h1>
-        {recordingMode && (
-          <span className="ml-2 animate-pulse rounded-full bg-rose-500/20 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-rose-300">
-            ● REC
-          </span>
-        )}
       </div>
 
       <div className="flex items-center gap-4">

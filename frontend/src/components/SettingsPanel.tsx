@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useAppStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface SettingsPanelProps {
@@ -12,14 +11,12 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
-/** Slide-over settings: API keys + Recording Mode toggle. Keys are masked. */
+/** Slide-over settings: API keys. Keys are masked. */
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const zaiKey = useAppStore((s) => s.zaiKey);
   const openaiKey = useAppStore((s) => s.openaiKey);
   const setZaiKey = useAppStore((s) => s.setZaiKey);
   const setOpenaiKey = useAppStore((s) => s.setOpenaiKey);
-  const recordingMode = useAppStore((s) => s.recordingMode);
-  const setRecordingMode = useAppStore((s) => s.setRecordingMode);
 
   const [showKeys, setShowKeys] = useState(false);
 
@@ -49,14 +46,6 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             </div>
 
             <ThemeToggle />
-
-            <div className="flex items-center justify-between rounded-lg border border-border bg-background/60 p-3">
-              <div>
-                <p className="text-sm font-semibold">Recording Mode</p>
-                <p className="text-[11px] text-muted-foreground">Hides keys · 16:9 safe-zone overlay</p>
-              </div>
-              <Switch checked={recordingMode} onCheckedChange={setRecordingMode} />
-            </div>
 
             <div className="flex flex-col gap-4">
               <div className="flex items-center justify-between">
