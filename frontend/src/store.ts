@@ -40,6 +40,10 @@ interface AppState {
   zaiKey: string;
   openaiKey: string;
 
+  // Per-dataset custom prompt context (keyed by dataset id). When unset for
+  // the active dataset, the prompt falls back to the dataset's PDF filename.
+  customContexts: Record<string, string>;
+
   // Model results (re-scored against the active dataset's golden)
   glm: ModelResult;
   gpt: ModelResult;
@@ -64,6 +68,9 @@ interface AppState {
   // Keys / UI
   setZaiKey: (k: string) => void;
   setOpenaiKey: (k: string) => void;
+
+  /** Set the prompt context for the active dataset (persisted in-memory only). */
+  setDocumentContext: (value: string) => void;
 
   // Results
   setGlm: (r: ModelResult) => void;
@@ -103,6 +110,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   zaiKey: import.meta.env.VITE_ZAI_API_KEY ?? '',
   openaiKey: import.meta.env.VITE_OPENAI_API_KEY ?? '',
 
+  customContexts: {},
+
   glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
   gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
   docling: { ...idleDocling },
@@ -141,7 +150,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   removeDataset: async (id) => {
     await deleteDataset(id);
-    if (get().active?.id === id) set({ active: null });
+    set((s) => {
+      const { [id]: _omit, ...rest } = s.customContexts;
+      return {
+        active: s.active?.id === id ? null : s.active,
+        customContexts: rest,
+      };
+    });
     await get().loadCatalog();
   },
 
@@ -178,6 +193,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   setZaiKey: (zaiKey) => set({ zaiKey }),
   setOpenaiKey: (openaiKey) => set({ openaiKey }),
 
+  setDocumentContext: (value) => {
+    const active = get().active;
+    if (!active) return;
+    const trimmed = value.trim();
+    set((s) => ({
+      customContexts: {
+        ...s.customContexts,
+        [active.id]: trimmed,
+      },
+    }));
+  },
+
   setGlm: (glm) => set({ glm }),
   setGpt: (gpt) => set({ gpt }),
   setDocling: (patch) => set((s) => ({ docling: { ...s.docling, ...patch } })),
@@ -192,7 +219,22 @@ export const useAppStore = create<AppState>((set, get) => ({
 /** Convenience selectors derived from the active dataset. */
 export function useActivePrompt(): string | null {
   const active = useAppStore((s) => s.active);
-  return active ? buildExtractionPrompt(active.golden) : null;
+  const customContexts = useAppStore((s) => s.customContexts);
+  if (!active) return null;
+  const ctx = customContexts[active.id] ?? active.pdfName;
+  return buildExtractionPrompt(active.golden, ctx);
+}
+
+/**
+ * Effective prompt context for the active dataset: the user-set value if any,
+ * otherwise the active PDF filename. Empty string when no dataset is active.
+ */
+export function useDocumentContext(): { value: string; isCustom: boolean } {
+  const active = useAppStore((s) => s.active);
+  const customContexts = useAppStore((s) => s.customContexts);
+  if (!active) return { value: '', isCustom: false };
+  const custom = customContexts[active.id];
+  return { value: custom ?? active.pdfName, isCustom: custom !== undefined };
 }
 
 export function useActiveKinds(): Record<string, import('./lib/dataset').ValueKind> {
