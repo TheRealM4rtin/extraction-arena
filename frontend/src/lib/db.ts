@@ -55,6 +55,43 @@ export async function saveDataset(rec: DatasetRecord): Promise<void> {
   await tx(FULL_STORE, 'readwrite', (s) => s.put(rec));
 }
 
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+/**
+ * Recursively merge a partial patch into a base record. Plain objects are
+ * merged key-by-key; arrays and scalars are replaced wholesale (matching the
+ * golden value semantics: string[] / Record<string,string> are atomic units).
+ */
+export function deepMerge<T>(base: T, patch: unknown): T {
+  if (!isPlainObject(base) || !isPlainObject(patch)) {
+    return patch as T;
+  }
+  const out: Record<string, unknown> = { ...(base as Record<string, unknown>) };
+  for (const key of Object.keys(patch)) {
+    const next = (patch as Record<string, unknown>)[key];
+    out[key] = key in out ? deepMerge(out[key], next) : next;
+  }
+  return out as T;
+}
+
+/**
+ * Apply a deep partial patch to an existing dataset and persist the full
+ * merged record (meta + full stores). Returns the merged record so callers
+ * can update in-memory state atomically.
+ */
+export async function updateDataset(
+  id: string,
+  patch: Partial<DatasetRecord>
+): Promise<DatasetRecord> {
+  const existing = await loadDataset(id);
+  if (!existing) throw new Error(`Dataset ${id} not found`);
+  const merged = deepMerge(existing, patch);
+  await saveDataset(merged);
+  return merged;
+}
+
 export async function listDatasets(): Promise<DatasetMeta[]> {
   const all = await tx<DatasetMeta[]>(META_STORE, 'readonly', (s) => s.getAll());
   return all.sort((a, b) => b.createdAt - a.createdAt);

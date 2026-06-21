@@ -8,6 +8,7 @@ import { BottomDock } from '@/components/BottomDock';
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { DatasetManager } from '@/components/DatasetManager';
 import { CreateDatasetDialog } from '@/components/CreateDatasetDialog';
+import { DatasetViewer } from '@/components/DatasetViewer';
 import { motion } from 'framer-motion';
 import { Database } from 'lucide-react';
 import { useExtraction } from '@/hooks/useExtraction';
@@ -76,6 +77,7 @@ export default function App() {
           <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[340px]">
             <DatasetManager onNew={() => setCreateOpen(true)} />
             {active && <PageViewer />}
+            {active && <DatasetViewer />}
           </aside>
 
           <section className="min-w-0 flex-1">

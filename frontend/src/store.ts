@@ -7,7 +7,14 @@ import {
   buildExtractionPrompt,
   expectedKinds,
 } from './lib/dataset';
-import { deleteDataset, listDatasets, loadDataset, saveDataset } from './lib/db';
+import {
+  deleteDataset,
+  deepMerge,
+  listDatasets,
+  loadDataset,
+  saveDataset,
+  updateDataset,
+} from './lib/db';
 import { type DoclingDocumentPayload, type ModelResult, type PageImage } from './lib/api';
 import { NOT_FOUND } from './lib/dataset';
 
@@ -50,6 +57,9 @@ interface AppState {
   removeDataset: (id: string) => Promise<void>;
   selectDataset: (id: string) => Promise<void>;
   clearActive: () => void;
+
+  /** Apply a deep partial patch to the active dataset and persist it. */
+  updateActiveDataset: (patch: Partial<DatasetRecord>) => Promise<void>;
 
   // Keys / UI
   setZaiKey: (k: string) => void;
@@ -146,6 +156,24 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   clearActive: () => set({ active: null }),
+
+  updateActiveDataset: async (patch) => {
+    const current = get().active;
+    if (!current) throw new Error('No active dataset to update');
+    const previous = current;
+    // Optimistic: deep-merge locally so the UI updates instantly.
+    set({ active: deepMerge(previous, patch) });
+    try {
+      const merged = await updateDataset(previous.id, patch);
+      set({ active: merged });
+      // Refresh the sidebar meta (name / fieldCount may have changed).
+      await get().loadCatalog();
+    } catch (e) {
+      // Roll back to the pre-edit snapshot on failure.
+      set({ active: previous });
+      throw e;
+    }
+  },
 
   setZaiKey: (zaiKey) => set({ zaiKey }),
   setOpenaiKey: (openaiKey) => set({ openaiKey }),
