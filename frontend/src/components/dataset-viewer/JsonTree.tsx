@@ -169,7 +169,7 @@ function CollapsibleNode({ value, path, label, depth, kind }: CollapsibleNodePro
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 rounded py-0.5 text-left transition-colors hover:bg-background/40"
+        className="flex items-center gap-1 rounded py-0.5 text-left transition-colors hover:bg-background/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         aria-expanded={open}
       >
         <ChevronRight
@@ -287,7 +287,7 @@ function EditableValue({ value, path, label, depth }: NodeProps) {
           type="button"
           onClick={startEdit}
           aria-label={`Edit ${displayLabel}`}
-          className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-primary focus-visible:opacity-100 group-hover/edit:opacity-100"
+          className="mt-0.5 shrink-0 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-primary focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/edit:opacity-100"
         >
           <Pencil className="h-3 w-3" />
         </button>
@@ -354,7 +354,7 @@ function EditableValue({ value, path, label, depth }: NodeProps) {
           onClick={() => void confirm()}
           disabled={saving}
           aria-label="Confirm edit"
-          className="inline-flex h-6 w-6 items-center justify-center rounded bg-emerald-500/15 text-emerald-400 transition-colors hover:bg-emerald-500/25 disabled:opacity-50"
+          className="inline-flex h-6 w-6 items-center justify-center rounded bg-emerald-500/15 text-emerald-400 transition-colors hover:bg-emerald-500/25 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
         >
           {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
         </button>
@@ -363,7 +363,7 @@ function EditableValue({ value, path, label, depth }: NodeProps) {
           onClick={cancel}
           disabled={saving}
           aria-label="Cancel edit"
-          className="inline-flex h-6 w-6 items-center justify-center rounded bg-muted/50 text-muted-foreground transition-colors hover:bg-muted disabled:opacity-50"
+          className="inline-flex h-6 w-6 items-center justify-center rounded bg-muted/50 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
         >
           <X className="h-3.5 w-3.5" />
         </button>
