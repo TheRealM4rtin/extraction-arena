@@ -59,11 +59,11 @@ function FieldValue({ value }: { value: GoldenValue }) {
 
   if (kind === 'array') {
     const arr = value as string[];
-    if (arr.length === 0) return <p className="font-mono text-xs text-muted-foreground">—</p>;
+    if (arr.length === 0) return <p className="font-mono text-sm text-muted-foreground">—</p>;
     return (
       <ul className="flex flex-col gap-0.5">
         {arr.map((item, idx) => (
-          <li key={idx} className="flex gap-1.5 font-mono text-[11px] text-foreground">
+          <li key={idx} className="flex gap-1.5 font-mono text-sm text-foreground">
             <span className="text-gt/60">•</span>
             <span>{item}</span>
           </li>
@@ -74,11 +74,11 @@ function FieldValue({ value }: { value: GoldenValue }) {
 
   if (kind === 'object') {
     const entries = Object.entries(value as Record<string, string>);
-    if (entries.length === 0) return <p className="font-mono text-xs text-muted-foreground">—</p>;
+    if (entries.length === 0) return <p className="font-mono text-sm text-muted-foreground">—</p>;
     return (
       <dl className="flex flex-col gap-0.5">
         {entries.map(([k, v]) => (
-          <div key={k} className="flex gap-1.5 font-mono text-[11px]">
+          <div key={k} className="flex gap-1.5 font-mono text-sm">
             <dt className="text-gt/70">{k}:</dt>
             <dd className="text-foreground">{v}</dd>
           </div>
@@ -89,7 +89,7 @@ function FieldValue({ value }: { value: GoldenValue }) {
 
   const str = value as string;
   return (
-    <p className="font-mono text-[11px] leading-relaxed text-foreground">
+    <p className="font-mono text-sm leading-relaxed text-foreground">
       {str === 'not_found' || str === '' ? <span className="text-muted-foreground">—</span> : str}
     </p>
   );
