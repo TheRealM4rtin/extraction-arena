@@ -22,6 +22,7 @@ export interface RunResult {
  */
 export function useExtraction() {
   const active = useAppStore((s) => s.active);
+  const customContexts = useAppStore((s) => s.customContexts);
   const zaiKey = useAppStore((s) => s.zaiKey);
   const openaiKey = useAppStore((s) => s.openaiKey);
   const setGlm = useAppStore((s) => s.setGlm);
@@ -32,7 +33,8 @@ export function useExtraction() {
     const pages: PageImage[] = active.pages;
     if (pages.length === 0) throw new Error('This dataset has no pages.');
 
-    const prompt = buildExtractionPrompt(active.golden);
+    const documentContext = customContexts[active.id] ?? active.pdfName;
+    const prompt = buildExtractionPrompt(active.golden, documentContext);
     const kinds = expectedKinds(active.golden);
 
     const configs: VisionConfig[] = [
@@ -73,7 +75,7 @@ export function useExtraction() {
     setGpt(gpt);
 
     return { glm, gpt };
-  }, [active, zaiKey, openaiKey, setGlm, setGpt]);
+  }, [active, customContexts, zaiKey, openaiKey, setGlm, setGpt]);
 
   return { run };
 }

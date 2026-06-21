@@ -9,6 +9,7 @@ import { SettingsPanel } from '@/components/SettingsPanel';
 import { DatasetManager } from '@/components/DatasetManager';
 import { CreateDatasetDialog } from '@/components/CreateDatasetDialog';
 import { DatasetViewer } from '@/components/DatasetViewer';
+import { PromptContextPanel } from '@/components/PromptContextPanel';
 import { motion } from 'framer-motion';
 import { Database } from 'lucide-react';
 import { useExtraction } from '@/hooks/useExtraction';
@@ -76,6 +77,7 @@ export default function App() {
         <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-28 pt-4 lg:flex-row">
           <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[340px]">
             <DatasetManager onNew={() => setCreateOpen(true)} />
+            {active && <PromptContextPanel />}
             {active && <PageViewer />}
             {active && <DatasetViewer />}
           </aside>
