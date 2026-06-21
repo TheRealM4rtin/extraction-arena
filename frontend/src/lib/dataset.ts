@@ -185,8 +185,11 @@ function coerceValue(v: unknown, kind: ValueKind): GoldenValue {
 /**
  * Build the extraction prompt for the vision models from the golden dataset's
  * field list. Uses ONLY field keys/types — never the golden answers themselves.
+ *
+ * `documentContext` is a short description of the document (e.g. its filename)
+ * injected into the prompt to ground the model; pass an empty string to omit it.
  */
-export function buildExtractionPrompt(g: GoldenDataset): string {
+export function buildExtractionPrompt(g: GoldenDataset, documentContext = ''): string {
   const keys = goldenFieldKeys(g);
   const fieldLines = keys.map((key) => {
     const field = g.golden_extraction[key];
@@ -200,16 +203,19 @@ export function buildExtractionPrompt(g: GoldenDataset): string {
     return `- "${key}" (${typeHint}): ${humanLabel(key)}`;
   });
 
-  return `You are a technical document extraction engine. Analyze the provided first-responder rescue sheet images and extract ONLY the following fields as a single valid JSON object.
+  const ctx = documentContext.trim();
+  const contextClause = ctx ? `The document is: ${ctx}.` : '';
+
+  return `You are a document data-extraction engine. ${contextClause} Analyze the provided document images and extract ONLY the following fields as a single valid JSON object.
 
 ${fieldLines.join('\n')}
 
 Rules:
-- Extract ONLY what is visible in the images.
-- For string fields, return a string. If a field is absent, return "not_found".
-- For string fields, prefer the shortest self-contained text span that answers the field. Do not repeat the field name unless it is part of the answer.
-- For array fields, return an array of strings. If absent, return [].
-- For object fields, return an object mapping keys to strings. If absent, return {}.
-- Preserve exact wording and ordering where the document implies order.
-- Return ONLY valid JSON (no markdown, no commentary) with exactly these keys: ${keys.join(', ')}.`;
+- Extract ONLY what is explicitly visible in the document. Do not infer or hallucinate values.
+- String fields: return the shortest self-contained text span that answers the field. If absent, return "not_found". Do not repeat the field name in the value.
+- String fields that span multiple lines or paragraphs must be returned as a single string, never multiple strings.
+- Array fields: return an array of strings in document order. If absent, return [].
+- Object fields: return an object mapping keys to strings. If absent, return {}.
+- Preserve exact wording, casing, and ordering as they appear in the document.
+- Return ONLY valid JSON with no markdown fences, no commentary, and exactly these keys: ${keys.join(', ')}.`;
 }
