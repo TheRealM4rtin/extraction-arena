@@ -17,18 +17,21 @@ export interface RunResult {
 
 /**
  * Orchestrates the two live vision-model calls (GML-5V-Turbo + GPT-5.4 mini) against
- * the active dataset's dynamic field schema. Both run in parallel; each model's
- * raw JSON is coerced to the golden field shape inside `api.ts`.
+ * the active dataset's dynamic field schema. Each model runs independently based on
+ * its enabled flag in the store; disabled models are skipped entirely (no API call,
+ * no status mutation). The enabled ones run in parallel and each model's raw JSON is
+ * coerced to the golden field shape inside `api.ts`.
  */
 export function useExtraction() {
   const active = useAppStore((s) => s.active);
   const customContexts = useAppStore((s) => s.customContexts);
   const zaiKey = useAppStore((s) => s.zaiKey);
   const openaiKey = useAppStore((s) => s.openaiKey);
+  const enabledModels = useAppStore((s) => s.enabledModels);
   const setGlm = useAppStore((s) => s.setGlm);
   const setGpt = useAppStore((s) => s.setGpt);
 
-  const run = useCallback(async (): Promise<RunResult> => {
+  const run = useCallback(async (): Promise<Partial<RunResult>> => {
     if (!active) throw new Error('No dataset selected.');
     const pages: PageImage[] = active.pages;
     if (pages.length === 0) throw new Error('This dataset has no pages.');
@@ -37,45 +40,59 @@ export function useExtraction() {
     const prompt = buildExtractionPrompt(active.golden, documentContext);
     const kinds = expectedKinds(active.golden);
 
-    const configs: VisionConfig[] = [
+    const allConfigs: Array<{ key: 'glm' | 'gpt'; cfg: VisionConfig }> = [
       {
-        modelId: 'glm-5v-turbo',
-        label: 'GLM-5V-Turbo',
-        endpoint: 'https://api.z.ai/api/paas/v4/chat/completions',
-        apiKey: zaiKey,
-        ...GLM_PRICING,
+        key: 'glm',
+        cfg: {
+          modelId: 'glm-5v-turbo',
+          label: 'GLM-5V-Turbo',
+          endpoint: 'https://api.z.ai/api/paas/v4/chat/completions',
+          apiKey: zaiKey,
+          ...GLM_PRICING,
+        },
       },
       {
-        modelId: 'gpt-5.4-mini',
-        label: 'GPT-5.4 mini',
-        endpoint: 'https://api.openai.com/v1/chat/completions',
-        apiKey: openaiKey,
-        ...GPT_PRICING,
+        key: 'gpt',
+        cfg: {
+          modelId: 'gpt-5.4-mini',
+          label: 'GPT-5.4 mini',
+          endpoint: 'https://api.openai.com/v1/chat/completions',
+          apiKey: openaiKey,
+          ...GPT_PRICING,
+        },
       },
     ];
 
-    setGlm(loadingResult('glm-5v-turbo', 'GLM-5V-Turbo'));
-    setGpt(loadingResult('gpt-5.4-mini', 'GPT-5.4 mini'));
+    const configs = allConfigs.filter(({ key }) => enabledModels[key]);
+    if (configs.length === 0) return {};
+
+    // Only set loading state for the models we're actually running.
+    if (enabledModels.glm) setGlm(loadingResult('glm-5v-turbo', 'GLM-5V-Turbo'));
+    if (enabledModels.gpt) setGpt(loadingResult('gpt-5.4-mini', 'GPT-5.4 mini'));
 
     const settled = await Promise.allSettled(
-      configs.map((cfg) => callVisionModel(cfg, pages, prompt, kinds))
+      configs.map(({ cfg }) => callVisionModel(cfg, pages, prompt, kinds))
     );
 
-    const [glmRes, gptRes] = settled;
-    const glm =
-      glmRes.status === 'fulfilled'
-        ? { ...glmRes.value, status: 'done' as const }
-        : errorResult('glm-5v-turbo', 'GLM-5V-Turbo', glmRes.reason);
-    const gpt =
-      gptRes.status === 'fulfilled'
-        ? { ...gptRes.value, status: 'done' as const }
-        : errorResult('gpt-5.4-mini', 'GPT-5.4 mini', gptRes.reason);
+    const result: Partial<RunResult> = {};
 
-    setGlm(glm);
-    setGpt(gpt);
+    settled.forEach((res, i) => {
+      const { key, cfg } = configs[i];
+      const value =
+        res.status === 'fulfilled'
+          ? { ...res.value, status: 'done' as const }
+          : errorResult(cfg.modelId, cfg.label, res.reason);
+      if (key === 'glm') {
+        setGlm(value);
+        result.glm = value;
+      } else {
+        setGpt(value);
+        result.gpt = value;
+      }
+    });
 
-    return { glm, gpt };
-  }, [active, customContexts, zaiKey, openaiKey, setGlm, setGpt]);
+    return result;
+  }, [active, customContexts, zaiKey, openaiKey, enabledModels, setGlm, setGpt]);
 
   return { run };
 }

@@ -25,6 +25,7 @@ export default function App() {
   const active = useAppStore((s) => s.active);
   const loadCatalog = useAppStore((s) => s.loadCatalog);
   const resetResults = useAppStore((s) => s.resetResults);
+  const enabledModels = useAppStore((s) => s.enabledModels);
 
   const extraction = useExtraction();
   const docling = useDocling();
@@ -33,14 +34,18 @@ export default function App() {
     void loadCatalog();
   }, [loadCatalog]);
 
+  const anyEnabled =
+    enabledModels.glm || enabledModels.gpt || enabledModels.docling;
+
   const handleRun = useCallback(async () => {
+    if (!anyEnabled) return;
     setRunning(true);
     try {
       await Promise.allSettled([extraction.run(), docling.run()]);
     } finally {
       setRunning(false);
     }
-  }, [docling, extraction]);
+  }, [anyEnabled, docling, extraction]);
 
   const handleReset = useCallback(() => {
     resetResults();
@@ -96,7 +101,7 @@ export default function App() {
           onReset={handleReset}
           onExport={handleExport}
           running={running}
-          canRun={active !== null}
+          canRun={active !== null && anyEnabled}
         />
       </div>
 

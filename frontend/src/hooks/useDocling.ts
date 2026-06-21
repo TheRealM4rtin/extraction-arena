@@ -12,12 +12,16 @@ import { useAppStore } from '@/store';
  * Local Docling baseline. The backend runs a DocTags-native VLM through MLX,
  * returns the structured DoclingDocument JSON plus markdown/text, then we map
  * that text onto the dataset schema using the field keys only.
+ *
+ * Honors the model toggle in the store: if Docling is disabled, `run` is a no-op.
  */
 export function useDocling() {
   const active = useAppStore((s) => s.active);
+  const enabled = useAppStore((s) => s.enabledModels.docling);
   const setDocling = useAppStore((s) => s.setDocling);
 
   const run = useCallback(async () => {
+    if (!enabled) return null;
     if (!active) throw new Error('No dataset selected.');
     const pages = active.pages;
     if (pages.length === 0) throw new Error('This dataset has no pages.');
@@ -59,7 +63,7 @@ export function useDocling() {
       });
       throw error;
     }
-  }, [active, setDocling]);
+  }, [active, enabled, setDocling]);
 
   return { run };
 }

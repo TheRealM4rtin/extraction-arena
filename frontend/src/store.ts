@@ -20,6 +20,9 @@ import { NOT_FOUND } from './lib/dataset';
 
 export type ConvertStatus = 'idle' | 'converting' | 'ready' | 'error';
 
+/** Model keys that participate in the comparison (Ground Truth has no toggle). */
+export type ModelKey = 'glm' | 'gpt' | 'docling';
+
 export interface DoclingResult {
   rawText: string;
   extracted: Record<string, GoldenValue>;
@@ -49,6 +52,13 @@ interface AppState {
   gpt: ModelResult;
   docling: DoclingResult;
 
+  /**
+   * Per-model enabled flag. All models default to OFF — the user must
+   * explicitly toggle on the models they want to run for a comparison.
+   * Ground Truth has no toggle (always shown).
+   */
+  enabledModels: Record<ModelKey, boolean>;
+
   // Catalog actions
   loadCatalog: () => Promise<void>;
   createDataset: (input: {
@@ -77,6 +87,9 @@ interface AppState {
   setGpt: (r: ModelResult) => void;
   setDocling: (r: Partial<DoclingResult>) => void;
   resetResults: () => void;
+
+  /** Toggle a model column's enabled state (defaults: all off). */
+  toggleModel: (key: ModelKey) => void;
 }
 
 function idleModel(id: string, label: string): ModelResult {
@@ -115,6 +128,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
   gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
   docling: { ...idleDocling },
+
+  enabledModels: { glm: false, gpt: false, docling: false },
 
   loadCatalog: async () => {
     set({ catalogLoading: true });
@@ -214,6 +229,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
       docling: { ...idleDocling },
     }),
+
+  toggleModel: (key) =>
+    set((s) => ({
+      enabledModels: { ...s.enabledModels, [key]: !s.enabledModels[key] },
+    })),
 }));
 
 /** Convenience selectors derived from the active dataset. */
