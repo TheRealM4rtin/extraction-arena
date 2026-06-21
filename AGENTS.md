@@ -67,5 +67,4 @@ Keys use the `VITE_` prefix (`VITE_OPENAI_API_KEY`, `VITE_ZAI_API_KEY`). Vite ex
   - Ground Truth `#10B981` · GLM-5V-Turbo `#06B6D4` · GPT-5.4 mini `#8B5CF6` · Docling MLX `#F59E0B`
 - Columns always render left-to-right in that order.
 - Minimum font size **14px** (demo is recorded for mobile LinkedIn viewing).
-- "Recording Mode" toggle must hide API keys and show a 16:9 safe-zone overlay.
 - All animations must complete within ~3–5s and stay smooth on a modern laptop — no particle systems, 3D, video, sound, or cursor trails.

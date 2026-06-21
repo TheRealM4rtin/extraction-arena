@@ -21,7 +21,6 @@ export default function App() {
   const [running, setRunning] = useState(false);
 
   const active = useAppStore((s) => s.active);
-  const recordingMode = useAppStore((s) => s.recordingMode);
   const loadCatalog = useAppStore((s) => s.loadCatalog);
   const resetResults = useAppStore((s) => s.resetResults);
 
@@ -70,7 +69,7 @@ export default function App() {
   return (
     <TooltipProvider delayDuration={150}>
       <MeshBackground />
-      <div className={recordingMode ? 'min-h-screen recording-safe' : 'min-h-screen'}>
+      <div className="min-h-screen">
         <Header onOpenSettings={() => setSettingsOpen(true)} />
 
         <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-28 pt-4 lg:flex-row">
