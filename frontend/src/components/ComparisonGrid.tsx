@@ -280,7 +280,12 @@ function DoclingColumn({ accent, index, isWinner }: { accent: string; index: num
       style={{ '--docling-glow': `${accent}cc` } as React.CSSProperties}
     >
       <div className="my-1 flex flex-col items-center">
-        <AccuracyScore accuracy={done && score ? score.accuracy : 0} accent={accent} size={150} />
+        <AccuracyScore
+          accuracy={done && score ? score.accuracy : 0}
+          accent={accent}
+          size={150}
+          active={done && !!score}
+        />
         <p className="mt-1 text-xs text-muted-foreground">
           {score ? `${score.matched}/${score.total} (Docling map)` : '—'}
         </p>
