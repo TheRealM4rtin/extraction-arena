@@ -23,6 +23,16 @@ export type ConvertStatus = 'idle' | 'converting' | 'ready' | 'error';
 /** Model keys that participate in the comparison (Ground Truth has no toggle). */
 export type ModelKey = 'glm' | 'gpt' | 'docling';
 
+/**
+ * All comparable column keys (Ground Truth + the three models). The default
+ * render order is fixed (see DEFAULT_COLUMN_ORDER) but the user can drag-and-drop
+ * to reorder for the duration of the session.
+ */
+export type ColumnKey = 'gt' | ModelKey;
+
+/** Canonical default order: Ground Truth · GLM · GPT · Docling. */
+export const DEFAULT_COLUMN_ORDER: ColumnKey[] = ['gt', 'glm', 'gpt', 'docling'];
+
 export interface DoclingResult {
   rawText: string;
   extracted: Record<string, GoldenValue>;
@@ -58,6 +68,14 @@ interface AppState {
    * Ground Truth has no toggle (always shown).
    */
   enabledModels: Record<ModelKey, boolean>;
+
+  /**
+   * Current display order of the comparison columns (session-scoped, in-memory).
+   * Defaults to DEFAULT_COLUMN_ORDER and is mutated only by drag-and-drop
+   * reordering in the ComparisonGrid.
+   */
+  columnOrder: ColumnKey[];
+  setColumnOrder: (order: ColumnKey[]) => void;
 
   // Catalog actions
   loadCatalog: () => Promise<void>;
@@ -130,6 +148,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   docling: { ...idleDocling },
 
   enabledModels: { glm: false, gpt: false, docling: false },
+
+  columnOrder: [...DEFAULT_COLUMN_ORDER],
+  setColumnOrder: (columnOrder) => set({ columnOrder }),
 
   loadCatalog: async () => {
     set({ catalogLoading: true });

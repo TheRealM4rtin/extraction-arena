@@ -1,27 +1,29 @@
 import { useRef, useState } from 'react';
-import { motion } from 'framer-motion';
-import { Star, Terminal } from 'lucide-react';
+import { motion, Reorder, useDragControls } from 'framer-motion';
+import { Star, Terminal, GripVertical } from 'lucide-react';
 import { GoldenColumn } from './GoldenColumn';
 import { ModelColumn } from './ModelColumn';
 import { FieldDiffList } from './FieldDiff';
 import { AccuracyScore } from './AccuracyScore';
 import { Badge } from '@/components/ui/badge';
 import { scoreDataset } from '@/lib/scoring';
-import { useAppStore, type ModelKey } from '@/store';
+import { useAppStore, type ColumnKey, type ModelKey } from '@/store';
 import { cn, formatMs } from '@/lib/utils';
 
 interface ColumnDef {
-  key: 'gt' | 'glm' | 'gpt' | 'docling';
+  key: ColumnKey;
   label: string;
   accent: string;
 }
 
-const COLUMNS: ColumnDef[] = [
-  { key: 'gt', label: 'Ground Truth', accent: '#10B981' },
-  { key: 'glm', label: 'GLM-5V-Turbo', accent: '#06B6D4' },
-  { key: 'gpt', label: 'GPT-5.4 mini', accent: '#8B5CF6' },
-  { key: 'docling', label: 'Docling MLX', accent: '#F59E0B' },
-];
+const COLUMN_MAP: Record<ColumnKey, ColumnDef> = {
+  gt: { key: 'gt', label: 'Ground Truth', accent: '#10B981' },
+  glm: { key: 'glm', label: 'GLM-5V-Turbo', accent: '#06B6D4' },
+  gpt: { key: 'gpt', label: 'GPT-5.4 mini', accent: '#8B5CF6' },
+  docling: { key: 'docling', label: 'Docling MLX', accent: '#F59E0B' },
+};
+
+const DEFAULT_WIDTHS: Record<ColumnKey, number> = { gt: 1, glm: 1, gpt: 1, docling: 1 };
 
 /** 4-column comparison: Ground Truth, GML-5V-Turbo, GPT-5.4 mini, Docling MLX. */
 export function ComparisonGrid() {
@@ -31,8 +33,10 @@ export function ComparisonGrid() {
   const golden = useAppStore((s) => s.active?.golden ?? null);
   const enabledModels = useAppStore((s) => s.enabledModels);
   const toggleModel = useAppStore((s) => s.toggleModel);
+  const columnOrder = useAppStore((s) => s.columnOrder);
+  const setColumnOrder = useAppStore((s) => s.setColumnOrder);
 
-  const [widths, setWidths] = useState<number[]>([1, 1, 1, 1]);
+  const [widths, setWidths] = useState<Record<ColumnKey, number>>(DEFAULT_WIDTHS);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<number | null>(null);
 
@@ -55,85 +59,158 @@ export function ComparisonGrid() {
     winner = doneModels.reduce((best, m) => (scores[m] > scores[best] ? m : best), doneModels[0]);
   }
 
-  const onPointerDown = (i: number) => (e: React.PointerEvent) => {
+  const onResizePointerDown = (i: number) => (e: React.PointerEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     dragging.current = i;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
-  const onPointerMove = (e: React.PointerEvent) => {
+  const onResizePointerMove = (e: React.PointerEvent) => {
     if (dragging.current === null || !containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const dx = e.clientX - rect.left;
     const total = rect.width;
     const i = dragging.current;
-    let left = 0;
-    for (let k = 0; k <= i; k++) left += (widths[k] / widths.reduce((a, b) => a + b, 0)) * total;
-    const deltaFrac = (dx - left) / total;
-    const sum = widths.reduce((a, b) => a + b, 0);
-    const next = [...widths];
-    const move = deltaFrac * sum;
-    next[i] = Math.max(0.4, next[i] + move);
-    next[i + 1] = Math.max(0.4, next[i + 1] - move);
+    const leftKey = columnOrder[i];
+    const rightKey = columnOrder[i + 1];
+    if (!leftKey || !rightKey) return;
+    const dx = e.clientX - rect.left;
+    const sum = Object.values(widths).reduce((a, b) => a + b, 0);
+    let cumulativeFrac = 0;
+    for (let k = 0; k <= i; k++) cumulativeFrac += widths[columnOrder[k]];
+    const leftEdgePx = (cumulativeFrac / sum) * total;
+    const move = ((dx - leftEdgePx) / total) * sum;
+    const next = { ...widths };
+    next[leftKey] = Math.max(0.4, next[leftKey] + move);
+    next[rightKey] = Math.max(0.4, next[rightKey] - move);
     setWidths(next);
   };
-  const onPointerUp = () => {
+  const onResizePointerUp = () => {
     dragging.current = null;
   };
 
-  const total = widths.reduce((a, b) => a + b, 0);
+  const total = Object.values(widths).reduce((a, b) => a + b, 0);
 
   return (
-    <div
+    <Reorder.Group
+      axis="x"
+      values={columnOrder}
+      onReorder={setColumnOrder}
+      as="div"
       ref={containerRef}
+      onPointerMove={onResizePointerMove}
+      onPointerUp={onResizePointerUp}
       className="relative flex h-[calc(100vh-184px)] min-h-[480px] gap-3 overflow-x-clip"
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
     >
-      {COLUMNS.map((col, i) => {
-        const flex = `${(widths[i] / total) * 100}%`;
-        const modelKey = col.key as ModelKey | 'gt';
+      {columnOrder.map((key, i) => {
+        const col = COLUMN_MAP[key];
+        const flex = `${(widths[key] / total) * 100}%`;
+        const isLast = i === columnOrder.length - 1;
+        const modelKey = key as ModelKey | 'gt';
         const isModel = modelKey !== 'gt';
         const enabled = isModel ? enabledModels[modelKey] : true;
-        const showBadge =
-          isModel && winner === modelKey && scores[modelKey] > 0;
+        const showBadge = isModel && winner === modelKey && scores[modelKey] > 0;
         return (
-          <div key={col.key} style={{ width: flex }} className="flex min-w-0">
-            <div className="relative flex w-full min-w-0 flex-col">
-              <ColumnShell
-                label={col.label}
-                accent={col.accent}
-                index={i}
-                enabled={enabled}
-                onToggle={isModel ? () => toggleModel(modelKey) : undefined}
-                badge={showBadge ? <BestBadge accent={col.accent} /> : null}
-              >
-                {col.key === 'gt' && <GoldenColumn />}
-                {col.key === 'glm' && (
-                  <ModelColumn source="glm" accent={col.accent} index={i} isWinner={winner === 'glm'} />
-                )}
-                {col.key === 'gpt' && (
-                  <ModelColumn source="gpt" accent={col.accent} index={i} isWinner={winner === 'gpt'} />
-                )}
-                {col.key === 'docling' && (
-                  <DoclingColumn accent={col.accent} index={i} isWinner={winner === 'docling'} />
-                )}
-              </ColumnShell>
-            </div>
-          </div>
+          <ReorderableColumn
+            key={key}
+            columnKey={key}
+            flex={flex}
+            index={i}
+            isLast={isLast}
+            label={col.label}
+            accent={col.accent}
+            enabled={enabled}
+            onToggle={isModel ? () => toggleModel(modelKey) : undefined}
+            badge={showBadge ? <BestBadge accent={col.accent} /> : null}
+            onResizePointerDown={onResizePointerDown(i)}
+          >
+            {key === 'gt' && <GoldenColumn />}
+            {key === 'glm' && (
+              <ModelColumn source="glm" accent={col.accent} index={i} isWinner={winner === 'glm'} />
+            )}
+            {key === 'gpt' && (
+              <ModelColumn source="gpt" accent={col.accent} index={i} isWinner={winner === 'gpt'} />
+            )}
+            {key === 'docling' && (
+              <DoclingColumn accent={col.accent} index={i} isWinner={winner === 'docling'} />
+            )}
+          </ReorderableColumn>
         );
       })}
+    </Reorder.Group>
+  );
+}
 
-      {COLUMNS.slice(0, -1).map((_, i) => (
+/**
+ * A single reorderable comparison column. The drag handle in the header starts
+ * a framer-motion drag via useDragControls; the resize handle on the right edge
+ * (hidden for the last column in the current order) drives the width-fraction
+ * resize logic which lives in the parent.
+ */
+function ReorderableColumn({
+  columnKey,
+  flex,
+  index,
+  isLast,
+  label,
+  accent,
+  enabled,
+  onToggle,
+  badge,
+  onResizePointerDown,
+  children,
+}: {
+  columnKey: ColumnKey;
+  flex: string;
+  index: number;
+  isLast: boolean;
+  label: string;
+  accent: string;
+  enabled: boolean;
+  onToggle?: () => void;
+  badge?: React.ReactNode;
+  onResizePointerDown: (e: React.PointerEvent) => void;
+  children: React.ReactNode;
+}) {
+  const controls = useDragControls();
+  return (
+    <Reorder.Item
+      value={columnKey}
+      as="div"
+      dragListener={false}
+      dragControls={controls}
+      dragMomentum={false}
+      whileDrag={{
+        scale: 1.015,
+        zIndex: 50,
+        boxShadow: '0 18px 48px -12px rgba(0,0,0,0.6)',
+      }}
+      style={{ width: flex }}
+      className="relative flex min-w-0"
+    >
+      <div className="relative flex w-full min-w-0 flex-col">
+        <ColumnShell
+          label={label}
+          accent={accent}
+          index={index}
+          enabled={enabled}
+          onToggle={onToggle}
+          badge={badge}
+          dragControls={controls}
+        >
+          {children}
+        </ColumnShell>
+      </div>
+      {!isLast && (
         <div
-          key={`handle-${i}`}
-          onPointerDown={onPointerDown(i)}
-          className="absolute top-0 z-20 flex h-full w-3 cursor-col-resize items-center justify-center"
-          style={{ left: `calc(${((widths.slice(0, i + 1).reduce((a, b) => a + b, 0) / total) * 100).toFixed(3)}% - 6px)` }}
+          onPointerDown={onResizePointerDown}
+          aria-hidden
+          className="absolute top-0 z-30 flex h-full w-3 cursor-col-resize items-center justify-center"
+          style={{ right: '-6px' }}
         >
           <div className="h-2/3 w-0.5 rounded-full bg-border hover:bg-foreground/40" />
         </div>
-      ))}
-    </div>
+      )}
+    </Reorder.Item>
   );
 }
 
@@ -162,6 +239,7 @@ function ColumnShell({
   enabled = true,
   onToggle,
   badge,
+  dragControls,
   children,
 }: {
   label: string;
@@ -170,6 +248,7 @@ function ColumnShell({
   enabled?: boolean;
   onToggle?: () => void;
   badge?: React.ReactNode;
+  dragControls: ReturnType<typeof useDragControls>;
   children: React.ReactNode;
 }) {
   return (
@@ -185,9 +264,22 @@ function ColumnShell({
     >
       {badge}
       <div
-        className="flex shrink-0 items-center gap-2 rounded-t-2xl px-4 py-3"
+        className="flex shrink-0 items-center gap-1.5 rounded-t-2xl px-3 py-3"
         style={{ background: `${accent}${enabled ? '14' : '0A'}` }}
       >
+        <button
+          type="button"
+          aria-label={`Drag ${label} column to reorder`}
+          title="Drag to reorder"
+          onPointerDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dragControls.start(e);
+          }}
+          className="flex h-6 w-4 shrink-0 cursor-grab touch-none items-center justify-center text-muted-foreground/40 transition-colors hover:text-foreground active:cursor-grabbing"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
         <span
           className="h-2.5 w-2.5 rounded-full"
           style={{
@@ -246,6 +338,7 @@ function ColumnToggle({
       aria-checked={enabled}
       aria-label={`${enabled ? 'Disable' : 'Enable'} ${label} column`}
       title={enabled ? 'Disable model' : 'Enable model'}
+      onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.preventDefault();
         e.stopPropagation();
