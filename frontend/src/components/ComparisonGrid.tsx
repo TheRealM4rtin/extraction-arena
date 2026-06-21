@@ -82,7 +82,7 @@ export function ComparisonGrid() {
   return (
     <div
       ref={containerRef}
-      className="relative flex h-full min-h-[560px] gap-3"
+      className="relative flex h-[calc(100vh-184px)] min-h-[480px] gap-3 overflow-x-clip"
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
@@ -169,7 +169,10 @@ function ColumnShell({
       style={{ borderColor: `${accent}40` }}
     >
       {badge}
-      <div className="flex items-center gap-2 rounded-t-2xl px-4 py-3" style={{ background: `${accent}14` }}>
+      <div
+        className="flex shrink-0 items-center gap-2 rounded-t-2xl px-4 py-3"
+        style={{ background: `${accent}14` }}
+      >
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: accent, boxShadow: `0 0 10px ${accent}` }} />
         <h2 className="text-sm font-bold uppercase tracking-wider" style={{ color: accent }}>
           {label}
