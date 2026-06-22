@@ -362,7 +362,7 @@ interface FieldDiffListProps {
 /** Expandable per-field rows. Collapsed = status + label; expanded = ground-truth/actual panes. */
 export function FieldDiffList({ fields, data, golden, accent }: FieldDiffListProps) {
   const [open, setOpen] = useState<string | null>(null);
-  const notifyFieldExpanded = useAppStore((s) => s.notifyFieldExpanded);
+  const setFieldOpen = useAppStore((s) => s.setFieldOpen);
 
   return (
     <ul className="flex flex-col gap-1">
@@ -378,9 +378,13 @@ export function FieldDiffList({ fields, data, golden, accent }: FieldDiffListPro
               onClick={() => {
                 if (isOpen) {
                   setOpen(null);
+                  setFieldOpen(f.key, false);
                 } else {
+                  // Close the previously-open field (if any) so its Ground
+                  // Truth refcount decrements before we open the new one.
+                  if (open) setFieldOpen(open, false);
                   setOpen(f.key);
-                  notifyFieldExpanded(f.key);
+                  setFieldOpen(f.key, true);
                 }
               }}
               className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors hover:bg-background/80"

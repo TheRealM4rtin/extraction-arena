@@ -162,34 +162,4 @@
   .diff-text span {
     font-size: inherit;
   }
-
-  /*
-   * Ground Truth cell pulse. Triggered when a model row is expanded — the
-   * overlay element is remounted (via a React key tied to a store nonce) on
-   * each open so the animation restarts from the top. Uses the GT accent
-   * (--gt) at low opacity; two cycles, ~2.2s, then settles. The element is
-   * pointer-events-none and absolutely positioned behind the cell content.
-   */
-  .gt-pulse-overlay {
-    animation: gt-pulse 1.1s ease-in-out 2;
-    z-index: 0;
-  }
-
-  @keyframes gt-pulse {
-    0%,
-    100% {
-      background-color: transparent;
-    }
-    50% {
-      background-color: rgb(var(--gt) / 0.25);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .gt-pulse-overlay {
-      animation: none;
-      /* Substitute a static, subtler highlight so the cue isn't lost. */
-      background-color: rgb(var(--gt) / 0.14);
-    }
-  }
 }
