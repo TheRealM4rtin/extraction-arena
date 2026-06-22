@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { type GoldenValue } from '@/lib/dataset';
+import { highlightBlock } from '@/lib/highlight';
 
 interface JsonViewerProps {
   data: Record<string, GoldenValue>;
@@ -33,57 +34,9 @@ function HighlightedJson({
 }) {
   return (
     <pre className={`overflow-auto font-mono text-xs leading-relaxed text-foreground ${className ?? ''}`}>
-      <code>{highlight(text, accent)}</code>
+      <code>{highlightBlock(text, accent)}</code>
     </pre>
   );
-}
-
-function highlight(text: string, accent: string) {
-  return text.split('\n').map((line, i) => (
-    <span key={i} className="block">
-      {tokenize(line, accent)}
-      {'\n'}
-    </span>
-  ));
-}
-
-function tokenize(line: string, accent: string) {
-  const parts: React.ReactNode[] = [];
-  const regex = /("(?:\\.|[^"\\])*")(\s*:\s*)?|(\{|\}|\[|\])|(\b-?\d+(?:\.\d+)?\b)|([^\s{}\[\],]+)/g;
-  let m: RegExpExecArray | null;
-  let key = 0;
-  while ((m = regex.exec(line)) !== null) {
-    if (m[1] !== undefined) {
-      const isKey = m[2] !== undefined;
-      parts.push(
-        isKey ? (
-          <span key={key++} className="text-muted-foreground">
-            {m[1]}
-          </span>
-        ) : (
-          <span key={key++} style={{ color: accent }}>
-            {m[1]}
-          </span>
-        )
-      );
-      if (m[2]) parts.push(<span key={key++}>{m[2]}</span>);
-    } else if (m[3]) {
-      parts.push(
-        <span key={key++} className="text-foreground">
-          {m[3]}
-        </span>
-      );
-    } else if (m[4]) {
-      parts.push(
-        <span key={key++} className="text-muted-foreground">
-          {m[4]}
-        </span>
-      );
-    } else if (m[5]) {
-      parts.push(<span key={key++}>{m[5]}</span>);
-    }
-  }
-  return parts;
 }
 
 function Typewriter({ text, accent, className }: { text: string; accent: string; className?: string }) {
@@ -108,7 +61,7 @@ function Typewriter({ text, accent, className }: { text: string; accent: string;
 
   return (
     <pre className={`overflow-hidden font-mono text-xs leading-relaxed text-foreground ${className ?? ''}`}>
-      <code>{highlight(text.slice(0, count), accent)}</code>
+      <code>{highlightBlock(text.slice(0, count), accent)}</code>
       <span className="inline-block w-2 animate-pulse" style={{ color: accent }}>
         ▋
       </span>
