@@ -42,6 +42,14 @@
     --mesh-cyan: rgba(6, 182, 212, 0.1);
     --mesh-emerald: rgba(16, 185, 129, 0.08);
     --mesh-grid: rgba(15, 23, 42, 0.06);
+
+    /* Per-column accents in light mode: darker shades keep accent-colored
+       text legible against the light background. Space-separated RGB so they
+       can be consumed via `rgb(var(--x) / <alpha>)` in Tailwind. */
+    --gt: 4 120 87; /* #047857 emerald-700 */
+    --glm: 3 105 161; /* #0369a1 sky-700 */
+    --gpt: 109 40 217; /* #6d28d9 violet-700 */
+    --ocr: 180 83 9; /* #b45309 amber-700 */
   }
 
   .dark {
@@ -71,6 +79,12 @@
     --mesh-cyan: rgba(6, 182, 212, 0.16);
     --mesh-emerald: rgba(16, 185, 129, 0.12);
     --mesh-grid: rgba(255, 255, 255, 0.035);
+
+    /* Per-column accents in dark mode: the repo's canonical bright hues. */
+    --gt: 16 185 129; /* #10B981 emerald-500 */
+    --glm: 6 182 212; /* #06B6D4 cyan-500 */
+    --gpt: 139 92 246; /* #8B5CF6 violet-500 */
+    --ocr: 245 158 11; /* #F59E0B amber-500 */
   }
 }
 
@@ -138,5 +152,14 @@
 
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* The global 14px floor (`span { font-size: 0.875rem }` in @layer base)
+     would otherwise override the inherited 11px on per-word spans inside
+     diff panes (WordDiff tokens, object values, etc.), causing each cell's
+     font size to depend on whether it renders via <div> or <span>. Forcing
+     inheritance keeps every diff-rendered span at the pane's text-[11px]. */
+  .diff-text span {
+    font-size: inherit;
   }
 }

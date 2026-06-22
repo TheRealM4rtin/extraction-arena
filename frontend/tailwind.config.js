@@ -44,21 +44,24 @@ export default {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
-        // Per-column accent palette (fixed repo convention).
+        // Per-column accent palette (fixed repo convention). DEFAULT is
+        // theme-aware (light-safe RGB triplet in :root, bright in .dark) so
+        // accent-colored text stays legible in light mode; `soft` stays as a
+        // fixed alpha overlay used for decoration only.
         gt: {
-          DEFAULT: '#10B981',
+          DEFAULT: 'rgb(var(--gt) / <alpha-value>)',
           soft: 'rgba(16,185,129,0.12)',
         },
         glm: {
-          DEFAULT: '#06B6D4',
+          DEFAULT: 'rgb(var(--glm) / <alpha-value>)',
           soft: 'rgba(6,182,212,0.12)',
         },
         gpt: {
-          DEFAULT: '#8B5CF6',
+          DEFAULT: 'rgb(var(--gpt) / <alpha-value>)',
           soft: 'rgba(139,92,246,0.12)',
         },
         ocr: {
-          DEFAULT: '#F59E0B',
+          DEFAULT: 'rgb(var(--ocr) / <alpha-value>)',
           soft: 'rgba(245,158,11,0.12)',
         },
       },

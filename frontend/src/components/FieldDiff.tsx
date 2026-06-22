@@ -5,14 +5,30 @@ import { type GoldenDataset, type GoldenValue, valueKind } from '@/lib/dataset';
 import { type FieldScore, isAbsentValue, normalizeStr } from '@/lib/scoring';
 import { cn } from '@/lib/utils';
 
-type DiffPart = { text: string; type: 'equal' | 'removed' | 'added' };
+/**
+ * Traffic-light palette for the unified diff in the "Actual" pane. Fixed
+ * (column-independent) so the meaning of each color is consistent across
+ * columns: green = matched, red+strikethrough = missing from actual, purple =
+ * added in actual. Light and dark variants are picked for legibility on both
+ * backgrounds.
+ */
+const EQUAL_CLASS = 'text-emerald-700 dark:text-emerald-400';
+const REMOVED_CLASS = 'text-rose-700 dark:text-rose-400 line-through';
+const ADDED_CLASS = 'text-purple-700 dark:text-purple-400';
+
+type UnifiedToken = { text: string; type: 'equal' | 'removed' | 'added' };
 
 function toWords(s: string): string[] {
   return s.split(/\s+/).filter(Boolean);
 }
 
-/** Word-level LCS diff. `golden` is the baseline; `actual` is the model output. */
-function diffWords(golden: string, actual: string): { golden: DiffPart[]; actual: DiffPart[] } {
+/**
+ * Word-level LCS unified diff. Walks both sequences and emits a single
+ * ordered stream of tokens: `equal` (in both), `removed` (in golden only,
+ * missing from actual), `added` (in actual only). Order is preserved so the
+ * actual pane reads as a single sentence with inline annotations.
+ */
+function diffUnified(golden: string, actual: string): UnifiedToken[] {
   const g = toWords(golden);
   const a = toWords(actual);
   const gn = g.map(normalizeStr);
@@ -25,159 +41,180 @@ function diffWords(golden: string, actual: string): { golden: DiffPart[]; actual
       dp[i][j] = gn[i] === an[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
-  const goldenParts: DiffPart[] = [];
-  const actualParts: DiffPart[] = [];
+  const tokens: UnifiedToken[] = [];
   let i = 0;
   let j = 0;
   while (i < n && j < k) {
     if (gn[i] === an[j]) {
-      goldenParts.push({ text: g[i], type: 'equal' });
-      actualParts.push({ text: a[j], type: 'equal' });
+      tokens.push({ text: g[i], type: 'equal' });
       i++;
       j++;
     } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      goldenParts.push({ text: g[i], type: 'removed' });
+      tokens.push({ text: g[i], type: 'removed' });
       i++;
     } else {
-      actualParts.push({ text: a[j], type: 'added' });
+      tokens.push({ text: a[j], type: 'added' });
       j++;
     }
   }
   while (i < n) {
-    goldenParts.push({ text: g[i], type: 'removed' });
+    tokens.push({ text: g[i], type: 'removed' });
     i++;
   }
   while (j < k) {
-    actualParts.push({ text: a[j], type: 'added' });
+    tokens.push({ text: a[j], type: 'added' });
     j++;
   }
-  return { golden: goldenParts, actual: actualParts };
+  return tokens;
 }
 
-function DiffLine({ parts, side }: { parts: DiffPart[]; side: 'golden' | 'actual' }) {
-  if (parts.length === 0) {
-    return <span className="text-muted-foreground">—</span>;
-  }
-  return (
-    <span className="flex flex-wrap gap-x-1 gap-y-0.5">
-      {parts.map((p, idx) => {
-        if (p.type === 'equal') {
-          return (
-            <span key={idx} className="text-foreground">
-              {p.text}
-            </span>
-          );
-        }
-        // 'removed' only appears on the golden side (missing from actual);
-        // 'added' only appears on the actual side (extra vs golden).
-        if (side === 'golden') {
-          return (
-            <span
-              key={idx}
-              className="rounded bg-amber-400/20 px-0.5 text-amber-200 line-through decoration-amber-400/60"
-            >
-              {p.text}
-            </span>
-          );
-        }
-        return (
-          <span key={idx} className="rounded bg-rose-500/25 px-0.5 text-rose-200">
-            {p.text}
-          </span>
-        );
-      })}
-    </span>
-  );
+/** Normalized word set, used for best-match pairing of array items. */
+function wordSet(s: string): Set<string> {
+  return new Set(toWords(s).map(normalizeStr));
+}
+
+/** Jaccard-style overlap ratio in [0,1] for two word sets. */
+function overlapRatio(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared++;
+  return shared / Math.max(a.size, b.size);
 }
 
 function AbsentNote({ label }: { label: string }) {
   return <span className="italic text-muted-foreground">{label}</span>;
 }
 
-function StringDiff({ golden, actual }: { golden: string; actual: string }) {
-  const gAbsent = isAbsentValue(golden);
-  const aAbsent = isAbsentValue(actual);
-  if (gAbsent && aAbsent) {
-    return (
-      <DiffPane label="Both absent" tone="match">
-        <AbsentNote label="(both not found)" />
-      </DiffPane>
-    );
-  }
-  const { golden: gParts, actual: aParts } = diffWords(
-    gAbsent ? '' : String(golden),
-    aAbsent ? '' : String(actual),
-  );
+/**
+ * Inline word-level diff renderer. Each token is its own `<span>` colored by
+ * status; tokens are joined with literal spaces (not flex gap) so the result
+ * reads as flowing inline text on the same baseline as plain text. Used for
+ * scalar strings, every object value, and every paired array item.
+ */
+function WordDiff({ golden, actual }: { golden: string; actual: string }) {
+  const tokens = diffUnified(golden, actual);
+  if (tokens.length === 0) return <span className="text-muted-foreground">—</span>;
   return (
-    <>
-      <DiffPane label="Ground truth" tone="golden">
-        {gAbsent ? <AbsentNote label="(not found)" /> : <DiffLine parts={gParts} side="golden" />}
-      </DiffPane>
-      <DiffPane label="Actual" tone="actual">
-        {aAbsent ? <AbsentNote label="(not found)" /> : <DiffLine parts={aParts} side="actual" />}
-      </DiffPane>
-    </>
+    <span>
+      {tokens.map((t, idx) => (
+        <span
+          key={idx}
+          className={t.type === 'equal' ? EQUAL_CLASS : t.type === 'removed' ? REMOVED_CLASS : ADDED_CLASS}
+        >
+          {idx > 0 ? ' ' : ''}
+          {t.text}
+        </span>
+      ))}
+    </span>
   );
 }
 
-function ItemRow({
-  status,
-  children,
-}: {
-  status: 'match' | 'missing' | 'extra';
-  children: React.ReactNode;
-}) {
-  const tone =
-    status === 'match'
-      ? 'text-emerald-300'
-      : status === 'missing'
-        ? 'text-amber-200'
-        : 'text-rose-200';
-  const mark = status === 'match' ? '=' : status === 'missing' ? '-' : '+';
+/**
+ * Ground-truth pane content: the golden value rendered verbatim, no diff, no
+ * marks. Arrays/objects are laid out as plain rows so the structure is
+ * scannable. Font + size come from the surrounding `DiffPane`.
+ */
+function PlainValue({ value }: { value: GoldenValue }) {
+  const kind = valueKind(value);
+  if (kind === 'array') {
+    const arr = value as string[];
+    if (arr.length === 0) return <AbsentNote label="(empty)" />;
+    return (
+      <div className="flex flex-col gap-0.5">
+        {arr.map((item, idx) => (
+          <div key={idx} className="text-foreground">
+            {item}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (kind === 'object') {
+    const entries = Object.entries(value as Record<string, string>);
+    if (entries.length === 0) return <AbsentNote label="(empty)" />;
+    return (
+      <div className="flex flex-col gap-0.5">
+        {entries.map(([k, v]) => (
+          <div key={k}>
+            <span className="text-muted-foreground">{k}:</span>{' '}
+            <span className="text-foreground">{v}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return <span className="text-foreground">{String(value)}</span>;
+}
+
+/**
+ * Array diff with best-match pairing + per-pair word-level diff. For each
+ * golden item, pick the unused actual item with the highest word-overlap; if
+ * overlap ≥ 0.5, render a word-diff of the pair, otherwise mark the golden
+ * item as missing (red strike). Unmatched actual items are appended in
+ * purple (added). Mirrors the scorer's order-independent set semantics.
+ */
+function ArrayAnswer({ golden, actual }: { golden: string[]; actual: string[] }) {
+  if (golden.length === 0 && actual.length === 0) return <AbsentNote label="(empty)" />;
+
+  const gSets = golden.map(wordSet);
+  const aSets = actual.map(wordSet);
+  const usedActual = new Set<number>();
+
+  type Row =
+    | { kind: 'pair'; golden: string; actual: string }
+    | { kind: 'missing'; text: string }
+    | { kind: 'added'; text: string };
+  const rows: Row[] = [];
+
+  golden.forEach((g, gi) => {
+    let bestJ = -1;
+    let bestRatio = 0;
+    actual.forEach((_, aj) => {
+      if (usedActual.has(aj)) return;
+      const r = overlapRatio(gSets[gi], aSets[aj]);
+      if (r > bestRatio) {
+        bestRatio = r;
+        bestJ = aj;
+      }
+    });
+    if (bestJ >= 0 && bestRatio >= 0.5) {
+      usedActual.add(bestJ);
+      rows.push({ kind: 'pair', golden: g, actual: actual[bestJ] });
+    } else {
+      rows.push({ kind: 'missing', text: g });
+    }
+  });
+  actual.forEach((a, aj) => {
+    if (!usedActual.has(aj)) rows.push({ kind: 'added', text: a });
+  });
+
   return (
-    <div className="flex items-start gap-1.5">
-      <span className={cn('shrink-0 font-mono', tone)}>{mark}</span>
-      <span className="font-mono text-[11px] text-foreground">{children}</span>
+    <div className="flex flex-col gap-0.5">
+      {rows.map((row, idx) => {
+        if (row.kind === 'pair') {
+          return (
+            <div key={idx}>
+              <WordDiff golden={row.golden} actual={row.actual} />
+            </div>
+          );
+        }
+        return (
+          <div key={idx} className={row.kind === 'missing' ? REMOVED_CLASS : ADDED_CLASS}>
+            {row.text}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function ArrayDiff({ golden, actual }: { golden: string[]; actual: string[] }) {
-  const gSet = new Set(golden.map(normalizeStr));
-  const aSet = new Set(actual.map(normalizeStr));
-  return (
-    <>
-      <DiffPane label="Ground truth" tone="golden">
-        {golden.length === 0 ? (
-          <AbsentNote label="(empty)" />
-        ) : (
-          <div className="flex flex-col gap-0.5">
-            {golden.map((item, idx) => (
-              <ItemRow key={idx} status={aSet.has(normalizeStr(item)) ? 'match' : 'missing'}>
-                {item}
-              </ItemRow>
-            ))}
-          </div>
-        )}
-      </DiffPane>
-      <DiffPane label="Actual" tone="actual">
-        {actual.length === 0 ? (
-          <AbsentNote label="(empty)" />
-        ) : (
-          <div className="flex flex-col gap-0.5">
-            {actual.map((item, idx) => (
-              <ItemRow key={idx} status={gSet.has(normalizeStr(item)) ? 'match' : 'extra'}>
-                {item}
-              </ItemRow>
-            ))}
-          </div>
-        )}
-      </DiffPane>
-    </>
-  );
-}
-
-function ObjectDiff({
+/**
+ * Object diff at the key level. For each key in the union of golden + actual:
+ * - present in both → word-diff the two values
+ * - golden only → render golden value with REMOVED_CLASS
+ * - actual only → render actual value with ADDED_CLASS
+ */
+function ObjectAnswer({
   golden,
   actual,
 }: {
@@ -185,46 +222,82 @@ function ObjectDiff({
   actual: Record<string, string>;
 }) {
   const keys = Array.from(new Set([...Object.keys(golden), ...Object.keys(actual)])).sort();
+  if (keys.length === 0) return <AbsentNote label="(empty)" />;
   return (
-    <>
-      <DiffPane label="Ground truth" tone="golden">
-        {keys.length === 0 ? (
-          <AbsentNote label="(empty)" />
-        ) : (
-          <div className="flex flex-col gap-0.5">
-            {keys.map((k) => {
-              const inGolden = k in golden;
-              const matched = inGolden && k in actual && normalizeStr(actual[k]) === normalizeStr(golden[k]);
-              return (
-                <ItemRow key={k} status={matched ? 'match' : inGolden ? 'missing' : 'extra'}>
-                  <span className="text-muted-foreground">{k}:</span> {inGolden ? golden[k] : <span className="text-rose-300">{actual[k]}</span>}
-                </ItemRow>
-              );
-            })}
+    <div className="flex flex-col gap-0.5">
+      {keys.map((k) => {
+        const inG = k in golden;
+        const inA = k in actual;
+        return (
+          <div key={k}>
+            <span className="text-muted-foreground">{k}:</span>{' '}
+            {inG && inA ? (
+              <WordDiff golden={golden[k]} actual={actual[k]} />
+            ) : (
+              <span className={inG ? REMOVED_CLASS : ADDED_CLASS}>{inG ? golden[k] : actual[k]}</span>
+            )}
           </div>
-        )}
-      </DiffPane>
-      <DiffPane label="Actual" tone="actual">
-        {keys.length === 0 ? (
-          <AbsentNote label="(empty)" />
-        ) : (
-          <div className="flex flex-col gap-0.5">
-            {keys.map((k) => {
-              const inActual = k in actual;
-              const matched = inActual && k in golden && normalizeStr(actual[k]) === normalizeStr(golden[k]);
-              return (
-                <ItemRow key={k} status={matched ? 'match' : inActual ? 'extra' : 'missing'}>
-                  <span className="text-muted-foreground">{k}:</span> {inActual ? actual[k] : <span className="italic text-muted-foreground">—</span>}
-                </ItemRow>
-              );
-            })}
-          </div>
-        )}
-      </DiffPane>
-    </>
+        );
+      })}
+    </div>
   );
 }
 
+/** Whole-value "all added" fallback for the case where golden is absent. */
+function AllAdded({ value }: { value: GoldenValue }) {
+  const kind = valueKind(value);
+  if (kind === 'array') {
+    const arr = value as string[];
+    if (arr.length === 0) return <AbsentNote label="(empty)" />;
+    return (
+      <div className="flex flex-col gap-0.5">
+        {arr.map((item, idx) => (
+          <div key={idx} className={ADDED_CLASS}>
+            {item}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (kind === 'object') {
+    const entries = Object.entries(value as Record<string, string>);
+    if (entries.length === 0) return <AbsentNote label="(empty)" />;
+    return (
+      <div className="flex flex-col gap-0.5">
+        {entries.map(([k, v]) => (
+          <div key={k}>
+            <span className="text-muted-foreground">{k}:</span>{' '}
+            <span className={ADDED_CLASS}>{v}</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return <span className={ADDED_CLASS}>{String(value)}</span>;
+}
+
+function AnswerBody({ golden, actual }: { golden: GoldenValue; actual: GoldenValue }) {
+  const kind = valueKind(golden);
+  if (kind === 'array') {
+    return <ArrayAnswer golden={golden as string[]} actual={(actual as string[]) ?? []} />;
+  }
+  if (kind === 'object') {
+    return (
+      <ObjectAnswer
+        golden={golden as Record<string, string>}
+        actual={(actual as Record<string, string>) ?? {}}
+      />
+    );
+  }
+  return <WordDiff golden={golden as string} actual={actual as string} />;
+}
+
+/**
+ * Two-pane layout. Ground truth = plain golden (no marks). Actual = unified
+ * inline diff walked through the LCS alignment (green/red-strike/purple).
+ * Font, text size, and per-tone border/background are preserved from the
+ * original git-diff rendering.
+ */
 function DiffPane({
   label,
   tone,
@@ -236,29 +309,46 @@ function DiffPane({
 }) {
   const color =
     tone === 'golden' ? 'text-gt' : tone === 'actual' ? 'text-muted-foreground' : 'text-emerald-500 dark:text-emerald-300';
-  const border = tone === 'golden' ? 'border-gt/20 bg-gt/5' : 'border-border bg-background/60';
+  const border =
+    tone === 'golden'
+      ? 'border-gt/20 bg-gt/5'
+      : tone === 'actual'
+        ? 'border-border bg-background/60'
+        : 'border-emerald-500/20 bg-emerald-500/5 dark:border-emerald-300/20 dark:bg-emerald-300/5';
   return (
     <div className={cn('rounded-md border px-2 py-1.5', border)}>
       <p className={cn('mb-1 text-[10px] font-semibold uppercase tracking-wider', color)}>{label}</p>
-      <div className="font-mono text-[11px] leading-relaxed text-foreground">{children}</div>
+      <div className="diff-text font-mono text-[11px] leading-relaxed text-foreground">{children}</div>
     </div>
   );
 }
 
 function DiffBody({ golden, actual }: { golden: GoldenValue; actual: GoldenValue }) {
-  const kind = valueKind(golden);
-  if (kind === 'array') {
-    return <ArrayDiff golden={golden as string[]} actual={actual as string[]} />;
-  }
-  if (kind === 'object') {
+  const gAbsent = isAbsentValue(golden);
+  const aAbsent = isAbsentValue(actual);
+  if (gAbsent && aAbsent) {
     return (
-      <ObjectDiff
-        golden={golden as Record<string, string>}
-        actual={(actual as Record<string, string>) ?? {}}
-      />
+      <DiffPane label="Both absent" tone="match">
+        <AbsentNote label="(both not found)" />
+      </DiffPane>
     );
   }
-  return <StringDiff golden={golden as string} actual={actual as string} />;
+  return (
+    <>
+      <DiffPane label="Ground truth" tone="golden">
+        {gAbsent ? <AbsentNote label="(not found)" /> : <PlainValue value={golden} />}
+      </DiffPane>
+      <DiffPane label="Actual" tone="actual">
+        {aAbsent ? (
+          <AbsentNote label="(not found)" />
+        ) : gAbsent ? (
+          <AllAdded value={actual} />
+        ) : (
+          <AnswerBody golden={golden} actual={actual} />
+        )}
+      </DiffPane>
+    </>
+  );
 }
 
 interface FieldDiffListProps {
@@ -268,7 +358,7 @@ interface FieldDiffListProps {
   accent: string;
 }
 
-/** Expandable per-field rows. Collapsed = status + label; expanded = ground-truth/actual diff. */
+/** Expandable per-field rows. Collapsed = status + label; expanded = ground-truth/actual panes. */
 export function FieldDiffList({ fields, data, golden, accent }: FieldDiffListProps) {
   const [open, setOpen] = useState<string | null>(null);
 
