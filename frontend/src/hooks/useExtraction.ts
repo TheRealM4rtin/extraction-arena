@@ -16,11 +16,17 @@ export interface RunResult {
 }
 
 /**
- * Orchestrates the two live vision-model calls (GML-5V-Turbo + GPT-5.4 mini) against
+ * Orchestrates the two live vision-model calls (GLM-5V-Turbo + GPT-5.4 mini) against
  * the active dataset's dynamic field schema. Each model runs independently based on
  * its enabled flag in the store; disabled models are skipped entirely (no API call,
- * no status mutation). The enabled ones run in parallel and each model's raw JSON is
- * coerced to the golden field shape inside `api.ts`.
+ * no status mutation). The enabled calls fire in parallel and each model's raw JSON
+ * is coerced to the golden field shape inside `api.ts`.
+ *
+ * Results stream in independently: each model commits its own store slice (and thus
+ * its column's loading → done/error transition) the moment its own response resolves.
+ * There is no Promise.all-style barrier gating visibility, so a slow model never
+ * blocks the display of a faster one. `run` only resolves once every spawned call has
+ * settled, so the caller can clear the global "running" flag.
  */
 export function useExtraction() {
   const active = useAppStore((s) => s.active);
@@ -70,18 +76,13 @@ export function useExtraction() {
     if (enabledModels.glm) setGlm(loadingResult('glm-5v-turbo', 'GLM-5V-Turbo'));
     if (enabledModels.gpt) setGpt(loadingResult('gpt-5.4-mini', 'GPT-5.4 mini'));
 
-    const settled = await Promise.allSettled(
-      configs.map(({ cfg }) => callVisionModel(cfg, pages, prompt, kinds))
-    );
-
     const result: Partial<RunResult> = {};
 
-    settled.forEach((res, i) => {
-      const { key, cfg } = configs[i];
-      const value =
-        res.status === 'fulfilled'
-          ? { ...res.value, status: 'done' as const }
-          : errorResult(cfg.modelId, cfg.label, res.reason);
+    // Fire each model independently and commit its result to the store the
+    // moment its own response resolves, so a slow model never blocks the
+    // display of a faster one. There is no Promise.all-style barrier gating
+    // when results become visible — each task self-commits its own column.
+    const commit = (key: 'glm' | 'gpt', value: ModelResult) => {
       if (key === 'glm') {
         setGlm(value);
         result.glm = value;
@@ -89,7 +90,24 @@ export function useExtraction() {
         setGpt(value);
         result.gpt = value;
       }
+    };
+
+    const tasks = configs.map(async ({ key, cfg }) => {
+      try {
+        const value: ModelResult = {
+          ...(await callVisionModel(cfg, pages, prompt, kinds)),
+          status: 'done',
+        };
+        commit(key, value);
+      } catch (reason) {
+        commit(key, errorResult(cfg.modelId, cfg.label, reason));
+      }
     });
+
+    // Await only so the caller knows when every spawned call has finished
+    // (used to clear the global "running" flag). Visibility of individual
+    // results is NOT gated on this — each `commit` above fires independently.
+    await Promise.allSettled(tasks);
 
     return result;
   }, [active, customContexts, zaiKey, openaiKey, enabledModels, setGlm, setGpt]);
