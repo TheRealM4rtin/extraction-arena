@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, Minus, ChevronRight } from 'lucide-react';
 import { type GoldenDataset, type GoldenValue, valueKind } from '@/lib/dataset';
 import { type FieldScore, isAbsentValue, normalizeStr } from '@/lib/scoring';
+import { useAppStore } from '@/store';
 import { cn } from '@/lib/utils';
 
 /**
@@ -361,6 +362,7 @@ interface FieldDiffListProps {
 /** Expandable per-field rows. Collapsed = status + label; expanded = ground-truth/actual panes. */
 export function FieldDiffList({ fields, data, golden, accent }: FieldDiffListProps) {
   const [open, setOpen] = useState<string | null>(null);
+  const setFieldOpen = useAppStore((s) => s.setFieldOpen);
 
   return (
     <ul className="flex flex-col gap-1">
@@ -373,7 +375,18 @@ export function FieldDiffList({ fields, data, golden, accent }: FieldDiffListPro
           <li key={f.key} className="overflow-hidden rounded-md bg-background/60">
             <button
               type="button"
-              onClick={() => setOpen(isOpen ? null : f.key)}
+              onClick={() => {
+                if (isOpen) {
+                  setOpen(null);
+                  setFieldOpen(f.key, false);
+                } else {
+                  // Close the previously-open field (if any) so its Ground
+                  // Truth refcount decrements before we open the new one.
+                  if (open) setFieldOpen(open, false);
+                  setOpen(f.key);
+                  setFieldOpen(f.key, true);
+                }
+              }}
               className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors hover:bg-background/80"
             >
               <ChevronRight

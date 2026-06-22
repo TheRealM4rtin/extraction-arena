@@ -77,6 +77,21 @@ interface AppState {
   columnOrder: ColumnKey[];
   setColumnOrder: (order: ColumnKey[]) => void;
 
+  /**
+   * Per-field refcount of how many model columns currently have that field's
+   * diff pane open. A Ground Truth cell stays highlighted while its refcount
+   * is > 0 and resets to neutral once the last column closes the pane.
+   */
+  openFieldRefs: Record<string, number>;
+  /**
+   * The field most recently opened (refcount transitioned 0 → 1) plus a nonce
+   * that bumps on every such transition. GoldenColumn watches the nonce to
+   * scroll the matching Ground Truth cell into view when a pane is opened.
+   */
+  expandedField: { key: string | null; nonce: number };
+  /** Register that a field's diff pane was opened (true) or closed (false). */
+  setFieldOpen: (key: string, open: boolean) => void;
+
   // Catalog actions
   loadCatalog: () => Promise<void>;
   createDataset: (input: {
@@ -151,6 +166,26 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   columnOrder: [...DEFAULT_COLUMN_ORDER],
   setColumnOrder: (columnOrder) => set({ columnOrder }),
+
+  openFieldRefs: {},
+  expandedField: { key: null, nonce: 0 },
+  setFieldOpen: (key, open) =>
+    set((s) => {
+      const prev = s.openFieldRefs[key] ?? 0;
+      const next = Math.max(0, prev + (open ? 1 : -1));
+      const openFieldRefs = { ...s.openFieldRefs };
+      if (next <= 0) delete openFieldRefs[key];
+      else openFieldRefs[key] = next;
+      // Only emit a scroll trigger on a fresh open (refcount 0 → 1) so the
+      // matching Ground Truth cell scrolls into view once when first revealed.
+      if (open && prev === 0) {
+        return {
+          openFieldRefs,
+          expandedField: { key, nonce: s.expandedField.nonce + 1 },
+        };
+      }
+      return { openFieldRefs };
+    }),
 
   loadCatalog: async () => {
     set({ catalogLoading: true });
