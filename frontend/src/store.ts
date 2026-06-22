@@ -77,6 +77,15 @@ interface AppState {
   columnOrder: ColumnKey[];
   setColumnOrder: (order: ColumnKey[]) => void;
 
+  /**
+   * Field-expanded signal used to pulse the matching Ground Truth cell when a
+   * model row is opened. `key` is the field that was just expanded (or null);
+   * `nonce` increments on every open so the GoldenColumn can retrigger the
+   * animation even when the same field is reopened.
+   */
+  expandedField: { key: string | null; nonce: number };
+  notifyFieldExpanded: (key: string) => void;
+
   // Catalog actions
   loadCatalog: () => Promise<void>;
   createDataset: (input: {
@@ -151,6 +160,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   columnOrder: [...DEFAULT_COLUMN_ORDER],
   setColumnOrder: (columnOrder) => set({ columnOrder }),
+
+  expandedField: { key: null, nonce: 0 },
+  notifyFieldExpanded: (key) =>
+    set((s) => ({ expandedField: { key, nonce: s.expandedField.nonce + 1 } })),
 
   loadCatalog: async () => {
     set({ catalogLoading: true });
