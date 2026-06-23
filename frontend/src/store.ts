@@ -3,7 +3,6 @@ import {
   type DatasetMeta,
   type DatasetRecord,
   type GoldenDataset,
-  type GoldenValue,
   buildExtractionPrompt,
   expectedKinds,
 } from './lib/dataset';
@@ -15,33 +14,23 @@ import {
   saveDataset,
   updateDataset,
 } from './lib/db';
-import { type DoclingDocumentPayload, type ModelResult, type PageImage } from './lib/api';
+import { type ModelResult, type PageImage } from './lib/api';
 import { NOT_FOUND } from './lib/dataset';
 
 export type ConvertStatus = 'idle' | 'converting' | 'ready' | 'error';
 
 /** Model keys that participate in the comparison (Ground Truth has no toggle). */
-export type ModelKey = 'glm' | 'gpt' | 'docling';
+export type ModelKey = 'glm' | 'gpt';
 
 /**
- * All comparable column keys (Ground Truth + the three models). The default
+ * All comparable column keys (Ground Truth + the two models). The default
  * render order is fixed (see DEFAULT_COLUMN_ORDER) but the user can drag-and-drop
  * to reorder for the duration of the session.
  */
 export type ColumnKey = 'gt' | ModelKey;
 
-/** Canonical default order: Ground Truth · GLM · GPT · Docling. */
-export const DEFAULT_COLUMN_ORDER: ColumnKey[] = ['gt', 'glm', 'gpt', 'docling'];
-
-export interface DoclingResult {
-  rawText: string;
-  extracted: Record<string, GoldenValue>;
-  document: DoclingDocumentPayload | null;
-  model: string;
-  elapsedMs: number;
-  status: 'idle' | 'loading' | 'done' | 'error';
-  error?: string;
-}
+/** Canonical default order: Ground Truth · GLM · GPT. */
+export const DEFAULT_COLUMN_ORDER: ColumnKey[] = ['gt', 'glm', 'gpt'];
 
 interface AppState {
   // Dataset catalog
@@ -60,7 +49,6 @@ interface AppState {
   // Model results (re-scored against the active dataset's golden)
   glm: ModelResult;
   gpt: ModelResult;
-  docling: DoclingResult;
 
   /**
    * Per-model enabled flag. All models default to OFF — the user must
@@ -118,7 +106,6 @@ interface AppState {
   // Results
   setGlm: (r: ModelResult) => void;
   setGpt: (r: ModelResult) => void;
-  setDocling: (r: Partial<DoclingResult>) => void;
   resetResults: () => void;
 
   /** Toggle a model column's enabled state (defaults: all off). */
@@ -139,15 +126,6 @@ function idleModel(id: string, label: string): ModelResult {
   };
 }
 
-const idleDocling: DoclingResult = {
-  rawText: '',
-  extracted: {},
-  document: null,
-  model: '',
-  elapsedMs: 0,
-  status: 'idle',
-};
-
 export const useAppStore = create<AppState>((set, get) => ({
   datasets: [],
   catalogLoading: false,
@@ -160,9 +138,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
   gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
-  docling: { ...idleDocling },
 
-  enabledModels: { glm: false, gpt: false, docling: false },
+  enabledModels: { glm: false, gpt: false },
 
   columnOrder: [...DEFAULT_COLUMN_ORDER],
   setColumnOrder: (columnOrder) => set({ columnOrder }),
@@ -237,7 +214,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       active: record ?? null,
       glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
       gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
-      docling: { ...idleDocling },
     });
   },
 
@@ -278,12 +254,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setGlm: (glm) => set({ glm }),
   setGpt: (gpt) => set({ gpt }),
-  setDocling: (patch) => set((s) => ({ docling: { ...s.docling, ...patch } })),
   resetResults: () =>
     set({
       glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
       gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
-      docling: { ...idleDocling },
     }),
 
   toggleModel: (key) =>

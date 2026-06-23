@@ -1,6 +1,6 @@
 # AGENTS.md
 
-An LLM vision-model evaluation dashboard that compares GLM-5V-Turbo (Z.AI), GPT-5.4 mini (OpenAI), and a local Docling MLX baseline against a per-document golden dataset. Built around first-responder rescue sheets (the seed dataset is the 4-page Tesla Cybertruck sheet), but **the extraction schema is dataset-driven, not fixed** — each dataset brings its own PDF and golden JSON.
+An LLM vision-model evaluation dashboard that compares GLM-5V-Turbo (Z.AI) and GPT-5.4 mini (OpenAI) against a per-document golden dataset. Built around first-responder rescue sheets (the seed dataset is the 4-page Tesla Cybertruck sheet), but **the extraction schema is dataset-driven, not fixed** — each dataset brings its own PDF and golden JSON.
 
 ## Repository layout
 
@@ -12,19 +12,18 @@ Monorepo with **two independent Node projects** (each has its own `package.json`
 
 ## Architecture rule (easy to violate)
 
-The **backend has three stateless routes:**
+The **backend has two stateless routes:**
 - `POST /api/extract` — PDF→PNG conversion (multipart upload → base64 PNGs at 300 DPI).
 - `POST /api/llm` — a same-origin **pass-through proxy** for the vision calls. The frontend builds the OpenAI-compatible request (model, messages, prompt, images, `temperature`, `response_format`) and POSTs `{ endpoint, apiKey, payload }`; the backend forwards it verbatim and returns the upstream body. **This exists because of CORS:** neither Z.AI nor OpenAI send `Access-Control-Allow-Origin`, so a direct browser `fetch` can't read the response (Z.AI: request lands, response blocked → Safari's "Load failed") or fails the preflight (OpenAI: request never lands). Do not call the providers directly from the browser, and do not put LLM/scoring logic in the backend — it only forwards.
-- `POST /api/docling` — a same-origin local pass-through for the Docling MLX baseline. The frontend POSTs dataset page images as data URLs; the backend writes temporary PNGs, invokes `docling_worker.py`, and returns the exported DoclingDocument JSON plus extracted markdown/text.
 
-The local baseline runs server-side through Docling + MLX. Keys still live client-side (`VITE_` env, editable in Settings) and are passed through the LLM proxy; the backend never stores them.
+Keys still live client-side (`VITE_` env, editable in Settings) and are passed through the LLM proxy; the backend never stores them.
 
 ## Datasets (the core unit of work)
 
 The app no longer has a drag-drop PDF + fixed ground truth. Instead, a **dataset** = `{ name, pdfName, dpi, pages[], golden }`, created via the "Create Dataset" dialog (name → PDF upload → golden JSON paste) and **persisted locally in IndexedDB** (`lib/db.ts`), so it survives app restarts. Multiple named datasets can coexist and be selected from the sidebar.
 
 - The golden JSON's `golden_extraction` object defines the extraction schema for that dataset — its keys are the fields, and each field's `value` may be a **string, string[], or `{key: string}` object**. `difficulty` and `source` are optional display metadata.
-- The extraction prompt (`buildExtractionPrompt` in `lib/dataset.ts`) is generated from the field keys + their *types* only — **never the golden answers**, so the model is never leaked the truth. The Docling keyword mapper also uses only field keys.
+- The extraction prompt (`buildExtractionPrompt` in `lib/dataset.ts`) is generated from the field keys + their *types* only — **never the golden answers**, so the model is never leaked the truth.
 - Page images are stored inline (base64 data URLs) in IndexedDB; a dataset can be re-run offline once created.
 
 ## Hard constraints
@@ -64,7 +63,7 @@ Keys use the `VITE_` prefix (`VITE_OPENAI_API_KEY`, `VITE_ZAI_API_KEY`). Vite ex
 
 - **Dark mode is the default and only theme.** Backgrounds `#0A0A0F` / `#12121A`.
 - **Per-column accent colors are fixed and reused everywhere** (borders, glows, badges, JSON syntax highlighting, gauge fill):
-  - Ground Truth `#10B981` · GLM-5V-Turbo `#06B6D4` · GPT-5.4 mini `#8B5CF6` · Docling MLX `#F59E0B`
+  - Ground Truth `#10B981` · GLM-5V-Turbo `#06B6D4` · GPT-5.4 mini `#8B5CF6`
 - Columns always render left-to-right in that order.
 - Minimum font size **14px** (demo is recorded for mobile LinkedIn viewing).
 - All animations must complete within ~3–5s and stay smooth on a modern laptop — no particle systems, 3D, video, sound, or cursor trails.

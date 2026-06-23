@@ -13,7 +13,6 @@ import { PromptContextPanel } from '@/components/PromptContextPanel';
 import { motion } from 'framer-motion';
 import { Database } from 'lucide-react';
 import { useExtraction } from '@/hooks/useExtraction';
-import { useDocling } from '@/hooks/useDocling';
 import { useAppStore } from '@/store';
 import { scoreDataset } from '@/lib/scoring';
 
@@ -28,24 +27,22 @@ export default function App() {
   const enabledModels = useAppStore((s) => s.enabledModels);
 
   const extraction = useExtraction();
-  const docling = useDocling();
 
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
 
-  const anyEnabled =
-    enabledModels.glm || enabledModels.gpt || enabledModels.docling;
+  const anyEnabled = enabledModels.glm || enabledModels.gpt;
 
   const handleRun = useCallback(async () => {
     if (!anyEnabled) return;
     setRunning(true);
     try {
-      await Promise.allSettled([extraction.run(), docling.run()]);
+      await extraction.run();
     } finally {
       setRunning(false);
     }
-  }, [anyEnabled, docling, extraction]);
+  }, [anyEnabled, extraction]);
 
   const handleReset = useCallback(() => {
     resetResults();
@@ -62,7 +59,6 @@ export default function App() {
       golden,
       glm: { ...state.glm, score: scoreDataset(state.glm.data, golden) },
       gpt: { ...state.gpt, score: scoreDataset(state.gpt.data, golden) },
-      docling: { ...state.docling, score: scoreDataset(state.docling.extracted, golden) },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -124,8 +120,8 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <div>
         <h2 className="text-xl font-bold tracking-tight">No dataset selected</h2>
         <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-          Create a dataset by uploading a PDF and its golden extraction JSON. Then run GLM-5V-Turbo, GPT-5.4 mini,
-          and a local Docling MLX baseline against it. Everything is saved locally and re-usable after restart.
+          Create a dataset by uploading a PDF and its golden extraction JSON. Then run GLM-5V-Turbo and
+          GPT-5.4 mini against it. Everything is saved locally and re-usable after restart.
         </p>
       </div>
       <button

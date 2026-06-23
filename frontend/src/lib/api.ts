@@ -42,23 +42,6 @@ interface BackendResponse {
   images: Array<{ page: number; width: number; height: number; dataUrl: string }>;
 }
 
-export interface DoclingDocumentPage {
-  page: number;
-  markdown: string;
-  document: unknown;
-}
-
-export interface DoclingDocumentPayload {
-  engine: string;
-  model: string;
-  pages: DoclingDocumentPage[];
-}
-
-interface DoclingBackendResponse {
-  text: string;
-  document: DoclingDocumentPayload;
-}
-
 interface VisionPayloadResult {
   data: Record<string, GoldenValue>;
   rawText: string;
@@ -90,30 +73,6 @@ export async function convertPdfToPages(
     dataUrl: img.dataUrl,
   }));
   return { dpi: data.dpi, pages, pdfName: file.name };
-}
-
-/** Run the local Docling MLX pipeline on the converted page images. */
-export async function runDoclingPipeline(
-  pages: PageImage[]
-): Promise<{ text: string; document: DoclingDocumentPayload }> {
-  const res = await fetch('/api/docling', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      pages: pages.map((page) => ({ page: page.page, dataUrl: page.dataUrl })),
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(formatHttpError(res.status, errText || res.statusText));
-  }
-
-  const data = (await res.json()) as DoclingBackendResponse;
-  return {
-    text: typeof data.text === 'string' ? data.text : '',
-    document: data.document,
-  };
 }
 
 /**

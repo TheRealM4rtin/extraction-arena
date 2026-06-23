@@ -1,14 +1,11 @@
 import { useRef, useState } from 'react';
 import { motion, Reorder, useDragControls } from 'framer-motion';
-import { Star, Terminal, GripVertical } from 'lucide-react';
+import { Star, GripVertical } from 'lucide-react';
 import { GoldenColumn } from './GoldenColumn';
 import { ModelColumn } from './ModelColumn';
-import { FieldDiffList } from './FieldDiff';
-import { AccuracyScore } from './AccuracyScore';
-import { Badge } from '@/components/ui/badge';
 import { scoreDataset } from '@/lib/scoring';
 import { useAppStore, type ColumnKey, type ModelKey } from '@/store';
-import { cn, formatMs } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 interface ColumnDef {
   key: ColumnKey;
@@ -20,16 +17,14 @@ const COLUMN_MAP: Record<ColumnKey, ColumnDef> = {
   gt: { key: 'gt', label: 'Ground Truth', accent: '#10B981' },
   glm: { key: 'glm', label: 'GLM-5V-Turbo', accent: '#06B6D4' },
   gpt: { key: 'gpt', label: 'GPT-5.4 mini', accent: '#8B5CF6' },
-  docling: { key: 'docling', label: 'Docling MLX', accent: '#F59E0B' },
 };
 
-const DEFAULT_WIDTHS: Record<ColumnKey, number> = { gt: 1, glm: 1, gpt: 1, docling: 1 };
+const DEFAULT_WIDTHS: Record<ColumnKey, number> = { gt: 1, glm: 1, gpt: 1 };
 
-/** 4-column comparison: Ground Truth, GML-5V-Turbo, GPT-5.4 mini, Docling MLX. */
+/** 3-column comparison: Ground Truth, GLM-5V-Turbo, GPT-5.4 mini. */
 export function ComparisonGrid() {
   const glm = useAppStore((s) => s.glm);
   const gpt = useAppStore((s) => s.gpt);
-  const docling = useAppStore((s) => s.docling);
   const golden = useAppStore((s) => s.active?.golden ?? null);
   const enabledModels = useAppStore((s) => s.enabledModels);
   const toggleModel = useAppStore((s) => s.toggleModel);
@@ -45,16 +40,14 @@ export function ComparisonGrid() {
   const scores = {
     glm: scoreOf(glm.data)?.accuracy ?? 0,
     gpt: scoreOf(gpt.data)?.accuracy ?? 0,
-    docling: scoreOf(docling.extracted)?.accuracy ?? 0,
   };
 
   // Only enabled + done models participate in the BEST badge.
-  const doneModels: Array<'glm' | 'gpt' | 'docling'> = [];
+  const doneModels: Array<'glm' | 'gpt'> = [];
   if (enabledModels.glm && glm.status === 'done') doneModels.push('glm');
   if (enabledModels.gpt && gpt.status === 'done') doneModels.push('gpt');
-  if (enabledModels.docling && docling.status === 'done') doneModels.push('docling');
 
-  let winner: 'glm' | 'gpt' | 'docling' | null = null;
+  let winner: 'glm' | 'gpt' | null = null;
   if (doneModels.length > 0) {
     winner = doneModels.reduce((best, m) => (scores[m] > scores[best] ? m : best), doneModels[0]);
   }
@@ -129,9 +122,6 @@ export function ComparisonGrid() {
             )}
             {key === 'gpt' && (
               <ModelColumn source="gpt" accent={col.accent} index={i} isWinner={winner === 'gpt'} />
-            )}
-            {key === 'docling' && (
-              <DoclingColumn accent={col.accent} index={i} isWinner={winner === 'docling'} />
             )}
           </ReorderableColumn>
         );
@@ -352,84 +342,5 @@ function ColumnToggle({
         style={{ transform: enabled ? 'translateX(16px)' : 'translateX(0)' }}
       />
     </button>
-  );
-}
-
-function DoclingColumn({ accent, index, isWinner }: { accent: string; index: number; isWinner: boolean }) {
-  const docling = useAppStore((s) => s.docling);
-  const golden = useAppStore((s) => s.active?.golden ?? null);
-  const score = golden ? scoreDataset(docling.extracted, golden) : null;
-  const done = docling.status === 'done';
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.1, duration: 0.5 }}
-      className={cn(
-        'flex flex-col px-3 pb-4 pt-3 transition-shadow duration-500',
-        isWinner && done && score && score.accuracy > 0 && 'shadow-[0_0_40px_-8px_var(--docling-glow)]'
-      )}
-      style={{ '--docling-glow': `${accent}cc` } as React.CSSProperties}
-    >
-      <div className="my-1 flex flex-col items-center">
-        <AccuracyScore
-          accuracy={done && score ? score.accuracy : 0}
-          accent={accent}
-          size={150}
-          active={done && !!score}
-        />
-        <p className="mt-1 text-xs text-muted-foreground">
-          {score ? `${score.matched}/${score.total} (Docling map)` : '—'}
-        </p>
-      </div>
-      <div className="my-2 flex flex-wrap items-center justify-center gap-1.5">
-        <Badge variant="outline" className="border-border bg-background/60 font-mono text-[11px]">
-          {formatMs(docling.elapsedMs)}
-        </Badge>
-        {docling.model && (
-          <Badge variant="outline" className="border-border bg-background/60 text-[11px] text-muted-foreground">
-            {docling.model}
-          </Badge>
-        )}
-      </div>
-
-      {done && score && golden && (
-        <div className="mt-1">
-          <FieldDiffList fields={score.perField} data={docling.extracted} golden={golden} accent={accent} />
-        </div>
-      )}
-
-      {(docling.status === 'loading' || done) && (
-        <div className="mt-3">
-          <div className="mb-1 flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-muted-foreground">
-            <Terminal className="h-3.5 w-3.5" style={{ color: accent }} />
-            Docling extracted text
-          </div>
-          <div className="h-56 overflow-y-auto rounded-md border border-border bg-background/60 p-2">
-            {docling.status === 'loading' && (
-              <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-amber-700 dark:text-amber-200/90">
-                {'▋ Running local Docling...'}
-              </pre>
-            )}
-            {done && (
-              <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-amber-700 dark:text-amber-200/90">
-                {docling.rawText || '(no text extracted)'}
-                <span className="ml-0.5 inline-block animate-pulse" style={{ color: accent }}>▋</span>
-              </pre>
-            )}
-          </div>
-        </div>
-      )}
-
-      {docling.status === 'error' && (
-        <div className="mt-3 rounded-md border border-rose-500/30 bg-rose-500/10 p-2">
-          <p className="font-mono text-[11px] text-rose-300">{docling.error}</p>
-        </div>
-      )}
-      {docling.status === 'idle' && (
-        <p className="mt-6 text-center font-mono text-[11px] text-muted-foreground">Awaiting local Docling run...</p>
-      )}
-    </motion.div>
   );
 }

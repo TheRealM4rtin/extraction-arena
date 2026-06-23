@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "PDF -> PNG conversion + local Docling service (300 DPI) for the Cybertruck rescue-sheet evaluator",
+  "description": "PDF -> PNG conversion (300 DPI) + vision-model pass-through proxy for the Cybertruck rescue-sheet evaluator",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch server.ts",

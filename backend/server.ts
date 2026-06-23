@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import extractRouter from './routes/extract.js';
-import doclingRouter from './routes/docling.js';
 import llmRouter from './routes/llm.js';
 
 const app = express();
@@ -19,7 +18,7 @@ app.use((req, res, next) => {
   });
   next();
 });
-// 300 DPI page images are posted inline to /api/llm and /api/docling.
+// 300 DPI page images are posted inline to /api/llm.
 app.use(express.json({ limit: '100mb' }));
 
 app.get('/api/health', (_req, res) => {
@@ -27,7 +26,6 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.use('/api', extractRouter);
-app.use('/api', doclingRouter);
 app.use('/api', llmRouter);
 
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

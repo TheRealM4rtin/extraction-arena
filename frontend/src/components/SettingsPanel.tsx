@@ -81,9 +81,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
             <div className="mt-auto rounded-lg border border-border bg-background/60 p-3 text-[11px] text-muted-foreground">
               <p className="mb-1 font-semibold text-foreground">Backend</p>
-              PDF→PNG conversion at <span className="text-cyan-300">300 DPI</span> and the local Docling
-              MLX pipeline run on the Express server (<code className="font-mono">POST /api/extract</code>{' '}
-              and <code className="font-mono">POST /api/docling</code>).
+              PDF→PNG conversion at <span className="text-cyan-300">300 DPI</span> on the Express server
+              (<code className="font-mono">POST /api/extract</code>).
             </div>
           </motion.div>
         </>
