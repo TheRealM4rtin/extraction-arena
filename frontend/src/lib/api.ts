@@ -74,7 +74,6 @@ export async function convertPdfToPages(
   }));
   return { dpi: data.dpi, pages, pdfName: file.name };
 }
-
 /**
  * Call an OpenAI-compatible vision endpoint (Z.AI GLM-5V-Turbo or OpenAI gpt-5.4-mini).
  * Sends every page image + the dataset-driven prompt. temperature: 0 and
@@ -85,10 +84,11 @@ export async function callVisionModel(
   config: VisionConfig,
   pages: PageImage[],
   prompt: string,
-  kinds: Record<string, ValueKind>
+  kinds: Record<string, ValueKind>,
+  signal?: AbortSignal
 ): Promise<Omit<ModelResult, 'status' | 'error'>> {
   const startedAt = performance.now();
-  const result = await callVisionWithFallback(config, pages, prompt, kinds);
+  const result = await callVisionWithFallback(config, pages, prompt, kinds, signal);
 
   return {
     modelId: config.modelId,
@@ -106,11 +106,13 @@ async function callVisionWithFallback(
   config: VisionConfig,
   pages: PageImage[],
   prompt: string,
-  kinds: Record<string, ValueKind>
+  kinds: Record<string, ValueKind>,
+  signal?: AbortSignal
 ): Promise<VisionPayloadResult> {
   try {
-    return await callVisionOnce(config, pages, prompt, kinds);
+    return await callVisionOnce(config, pages, prompt, kinds, signal);
   } catch (error) {
+    if (isAbortError(error) || signal?.aborted) throw error;
     if (!isHttpStatusError(error, 413)) throw error;
 
     if (pages.length === 1) {
@@ -124,7 +126,7 @@ async function callVisionWithFallback(
     const results: VisionPayloadResult[] = [];
 
     for (const batch of [left, right]) {
-      results.push(await callVisionWithFallback(config, batch, prompt, kinds));
+      results.push(await callVisionWithFallback(config, batch, prompt, kinds, signal));
     }
 
     return mergeChunkResults(results, kinds);
@@ -135,7 +137,8 @@ async function callVisionOnce(
   config: VisionConfig,
   pages: PageImage[],
   prompt: string,
-  kinds: Record<string, ValueKind>
+  kinds: Record<string, ValueKind>,
+  signal?: AbortSignal
 ): Promise<VisionPayloadResult> {
   const content: unknown[] = [
     { type: 'text', text: prompt },
@@ -155,6 +158,7 @@ async function callVisionOnce(
     // Route through the backend pass-through to avoid browser CORS: neither
     // Z.AI nor OpenAI return CORS headers, so direct browser fetches can't read
     // the response. The backend forwards endpoint + Authorization verbatim.
+    signal,
     body: JSON.stringify({
       endpoint: config.endpoint,
       apiKey: config.apiKey,
@@ -282,6 +286,16 @@ function isAbsentScalar(value: string): boolean {
 
 function isHttpStatusError(error: unknown, status: number): error is HttpStatusError {
   return error instanceof Error && 'status' in error && error.status === status;
+}
+
+/** True for a fetch aborted via AbortController (i.e. user cancel). */
+export function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'AbortError' ||
+      // Some runtimes surface aborted fetches as a TypeError "aborted"
+      /aborted/i.test(error.message))
+  );
 }
 
 function createHttpStatusError(status: number, message: string): HttpStatusError {
