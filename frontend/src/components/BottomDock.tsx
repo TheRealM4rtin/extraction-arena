@@ -6,13 +6,21 @@ import { Button } from '@/components/ui/button';
 interface BottomDockProps {
   onRun: () => void;
   onReset: () => void;
+  onCancel: () => void;
   onExport: () => void;
   running: boolean;
   canRun: boolean;
 }
 
-/** Floating glass capsule toolbar with Run / Reset / Export. */
-export function BottomDock({ onRun, onReset, onExport, running, canRun }: BottomDockProps) {
+/**
+ * Floating glass capsule toolbar with Run / Reset-Cancel / Export.
+ *
+ * The rotate button is dual-purpose: while a run is in progress it cancels every
+ * in-flight call (the shared AbortController in App), and while idle it resets the
+ * result columns. The icon stays RotateCcw in both modes; only the affordance
+ * (aria-label + tint) changes so the cancel target is unambiguous.
+ */
+export function BottomDock({ onRun, onReset, onCancel, onExport, running, canRun }: BottomDockProps) {
   const [shimmer, setShimmer] = useState(false);
 
   return (
@@ -35,11 +43,12 @@ export function BottomDock({ onRun, onReset, onExport, running, canRun }: Bottom
         <Button
           variant="ghost"
           size="icon"
-          onClick={onReset}
+          onClick={running ? onCancel : onReset}
           className="rounded-full"
-          aria-label="Reset"
+          aria-label={running ? 'Cancel run' : 'Reset'}
+          title={running ? 'Cancel run' : 'Reset'}
         >
-          <RotateCcw className="h-4 w-4" />
+          <RotateCcw className={running ? 'h-4 w-4 text-rose-400' : 'h-4 w-4'} />
         </Button>
 
         <div className="relative overflow-hidden">

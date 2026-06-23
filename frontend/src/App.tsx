@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { MeshBackground } from '@/components/MeshBackground';
 import { Header } from '@/components/Header';
@@ -28,6 +28,11 @@ export default function App() {
 
   const extraction = useExtraction();
 
+  // Per-run abort controller. Created when a run starts, aborted by the cancel
+  // button, and cleared once every spawned call has settled. Holds the in-flight
+  // signal so the BottomDock's rotate button can cancel a run in progress.
+  const runControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
@@ -36,13 +41,24 @@ export default function App() {
 
   const handleRun = useCallback(async () => {
     if (!anyEnabled) return;
+    // Abort any lingering run first (defensive — shouldn't normally happen).
+    runControllerRef.current?.abort();
+    const controller = new AbortController();
+    runControllerRef.current = controller;
     setRunning(true);
     try {
-      await extraction.run();
+      await extraction.run(controller.signal);
     } finally {
       setRunning(false);
+      if (runControllerRef.current === controller) {
+        runControllerRef.current = null;
+      }
     }
   }, [anyEnabled, extraction]);
+
+  const handleCancel = useCallback(() => {
+    runControllerRef.current?.abort();
+  }, []);
 
   const handleReset = useCallback(() => {
     resetResults();
@@ -95,6 +111,7 @@ export default function App() {
         <BottomDock
           onRun={handleRun}
           onReset={handleReset}
+          onCancel={handleCancel}
           onExport={handleExport}
           running={running}
           canRun={active !== null && anyEnabled}
