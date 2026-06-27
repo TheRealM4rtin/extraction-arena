@@ -82,6 +82,13 @@ function tokenizeWords(value: string): string[] {
   return normalized ? normalized.split(' ') : [];
 }
 
+/** Split a scalar into comparable tokens (case/digit-boundary aware). Exported
+ *  so the Metrics Dashboard computes partial overlap consistently with this
+ *  scorer rather than reinventing its own tokenizer. */
+export function tokenizeScalar(value: string): string[] {
+  return tokenizeWords(value);
+}
+
 function removeScalarNoise(tokens: string[]): string[] {
   return tokens.filter((token) => !SCALAR_STOP_WORDS.has(token));
 }
