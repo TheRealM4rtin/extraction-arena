@@ -16,6 +16,7 @@ import {
 } from './lib/db';
 import { type ModelResult, type PageImage } from './lib/api';
 import { NOT_FOUND } from './lib/dataset';
+import { type FieldMetricConfig } from './lib/metrics';
 
 export type ConvertStatus = 'idle' | 'converting' | 'ready' | 'error';
 
@@ -45,6 +46,14 @@ interface AppState {
   // Per-dataset custom prompt context (keyed by dataset id). When unset for
   // the active dataset, the prompt falls back to the dataset's PDF filename.
   customContexts: Record<string, string>;
+
+  /**
+   * Per-dataset, per-field metric configuration for the Metrics Dashboard
+   * (match strategy + optimization priority). Keyed by dataset id, then field
+   * key. In-memory only (same scope as customContexts); fields without an
+   * entry fall back to DEFAULT_FIELD_CONFIG from lib/metrics.
+   */
+  metricConfigs: Record<string, Record<string, FieldMetricConfig>>;
 
   // Model results (re-scored against the active dataset's golden)
   glm: ModelResult;
@@ -103,6 +112,12 @@ interface AppState {
   /** Set the prompt context for the active dataset (persisted in-memory only). */
   setDocumentContext: (value: string) => void;
 
+  /** Patch the metric config for one field of the active dataset (in-memory). */
+  setFieldMetricConfig: (
+    fieldKey: string,
+    patch: Partial<FieldMetricConfig>
+  ) => void;
+
   // Results
   setGlm: (r: ModelResult) => void;
   setGpt: (r: ModelResult) => void;
@@ -135,6 +150,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   openaiKey: import.meta.env.VITE_OPENAI_API_KEY ?? '',
 
   customContexts: {},
+
+  metricConfigs: {},
 
   glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
   gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
@@ -252,6 +269,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  setFieldMetricConfig: (fieldKey, patch) => {
+    const active = get().active;
+    if (!active) return;
+    set((s) => {
+      const perDs = s.metricConfigs[active.id] ?? {};
+      const prev = perDs[fieldKey] ?? {
+        matchStrategy: 'partial' as const,
+        priority: 'recall' as const,
+      };
+      return {
+        metricConfigs: {
+          ...s.metricConfigs,
+          [active.id]: { ...perDs, [fieldKey]: { ...prev, ...patch } },
+        },
+      };
+    });
+  },
+
   setGlm: (glm) => set({ glm }),
   setGpt: (gpt) => set({ gpt }),
   resetResults: () =>
@@ -290,6 +325,25 @@ export function useDocumentContext(): { value: string; isCustom: boolean } {
 export function useActiveKinds(): Record<string, import('./lib/dataset').ValueKind> {
   const active = useAppStore((s) => s.active);
   return active ? expectedKinds(active.golden) : {};
+}
+
+/**
+ * Resolved metric config (with defaults filled in) for one field of the active
+ * dataset. Re-renders when the config or active dataset changes.
+ */
+export function useFieldMetricConfig(
+  fieldKey: string
+): FieldMetricConfig {
+  const activeId = useAppStore((s) => s.active?.id);
+  const cfg = useAppStore((s) =>
+    activeId ? s.metricConfigs[activeId]?.[fieldKey] : undefined
+  );
+  return (
+    cfg ?? {
+      matchStrategy: 'partial' as const,
+      priority: 'recall' as const,
+    }
+  );
 }
 
 export { NOT_FOUND };
