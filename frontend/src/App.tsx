@@ -10,6 +10,7 @@ import { DatasetManager } from '@/components/DatasetManager';
 import { CreateDatasetDialog } from '@/components/CreateDatasetDialog';
 import { DatasetViewer } from '@/components/DatasetViewer';
 import { PromptContextPanel } from '@/components/PromptContextPanel';
+import { MetricsDashboard } from '@/components/metrics-dashboard/MetricsDashboard';
 import { motion } from 'framer-motion';
 import { Database } from 'lucide-react';
 import { useExtraction } from '@/hooks/useExtraction';
@@ -19,6 +20,7 @@ import { scoreDataset } from '@/lib/scoring';
 export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [metricsOpen, setMetricsOpen] = useState(false);
   const [running, setRunning] = useState(false);
 
   const active = useAppStore((s) => s.active);
@@ -89,7 +91,10 @@ export default function App() {
     <TooltipProvider delayDuration={150}>
       <MeshBackground />
       <div className="min-h-screen">
-        <Header onOpenSettings={() => setSettingsOpen(true)} />
+        <Header
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenMetrics={() => setMetricsOpen(true)}
+        />
 
         <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-28 pt-4 lg:flex-row">
           <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-[340px]">
@@ -120,6 +125,7 @@ export default function App() {
 
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <CreateDatasetDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <MetricsDashboard open={metricsOpen} onClose={() => setMetricsOpen(false)} />
     </TooltipProvider>
   );
 }
