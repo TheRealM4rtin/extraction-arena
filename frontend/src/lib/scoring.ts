@@ -212,10 +212,17 @@ export function fieldMatch(model: GoldenValue, golden: GoldenValue, fieldKey = '
   const gKind = valueKind(golden);
 
   if (gKind === 'array') {
+    // Order-sensitive: compare position-by-position. A reordered array does
+    // NOT count as a match — the prompt instructs models to preserve document
+    // order, numbering, and casing, so the score must enforce it. Items beyond
+    // the shorter array's length are treated as positional mismatches.
     const ma = asArray(model).map(normalizeStr);
     const ga = asArray(golden).map(normalizeStr);
-    const goldenSet = new Set(ga);
-    const matched = ma.filter((x) => goldenSet.has(x)).length;
+    const minLen = Math.min(ma.length, ga.length);
+    let matched = 0;
+    for (let i = 0; i < minLen; i++) {
+      if (ma[i] === ga[i]) matched += 1;
+    }
     const exact = ma.length === ga.length && matched === ga.length;
     return { match: exact, partial: ga.length === 0 ? 0 : matched / ga.length };
   }
