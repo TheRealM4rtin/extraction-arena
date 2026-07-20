@@ -1,15 +1,30 @@
 import type { DatasetMeta, DatasetRecord } from './dataset';
+import { migrateLegacyDataset } from './canonical/ingest';
 
 /**
- * Local persistence for datasets (metadata + converted page images + golden
- * JSON) via IndexedDB. Survives app restarts. Page images are stored inline as
- * base64 data URLs, so a dataset can be re-run offline once created.
+ * Local persistence for datasets (metadata + converted page images + canonical
+ * rescue-sheet JSON + derived golden projection + raw source) via IndexedDB.
+ * Survives app restarts. Page images are stored inline as base64 data URLs, so
+ * a dataset can be re-run offline once created.
  */
 
 const DB_NAME = 'extraction-arena';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const META_STORE = 'datasets-meta'; // lightweight: drives the selector list
-const FULL_STORE = 'datasets-full'; // full records incl. pages + golden
+const FULL_STORE = 'datasets-full'; // full records incl. pages + canonical + golden
+
+function isMigrated(rec: unknown): boolean {
+  return !!rec && typeof rec === 'object' && 'canonical' in (rec as object);
+}
+
+/** Ensure a loaded record has the v2 shape; migrate + persist if not. */
+async function ensureMigrated(rec: DatasetRecord | undefined): Promise<DatasetRecord | undefined> {
+  if (!rec) return rec;
+  if (isMigrated(rec)) return rec;
+  const migrated = migrateLegacyDataset(rec as unknown as Parameters<typeof migrateLegacyDataset>[0]);
+  await saveDataset(migrated);
+  return migrated;
+}
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -22,6 +37,9 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(FULL_STORE)) {
         db.createObjectStore(FULL_STORE, { keyPath: 'id' });
       }
+      // v1 -> v2: lazily migrate records on load (see ensureMigrated). The
+      // version bump is recorded so future structural changes can run a pass
+      // here against `db.transaction`.
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -98,7 +116,8 @@ export async function listDatasets(): Promise<DatasetMeta[]> {
 }
 
 export async function loadDataset(id: string): Promise<DatasetRecord | undefined> {
-  return tx<DatasetRecord | undefined>(FULL_STORE, 'readonly', (s) => s.get(id));
+  const rec = await tx<DatasetRecord | undefined>(FULL_STORE, 'readonly', (s) => s.get(id));
+  return ensureMigrated(rec);
 }
 
 export async function deleteDataset(id: string): Promise<void> {

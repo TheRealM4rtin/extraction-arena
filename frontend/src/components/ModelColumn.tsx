@@ -27,6 +27,7 @@ export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProp
   const loading = result.status === 'loading';
   const done = result.status === 'done';
   const error = result.status === 'error';
+  const issueCount = (result.validationIssues ?? []).filter((i) => i.level === 'error').length;
 
   return (
     <motion.div
@@ -62,6 +63,16 @@ export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProp
         <Badge variant="outline" className="border-border bg-background/60 font-mono text-[11px]">
           {(result.promptTokens + result.completionTokens).toLocaleString()} tok
         </Badge>
+        {done && issueCount > 0 && (
+          <Badge
+            variant="outline"
+            title={issueCount === 1 ? '1 validation issue on the canonical draft' : `${issueCount} validation issues on the canonical draft`}
+            className="border-amber-500/40 bg-amber-500/10 font-mono text-[11px] text-amber-400"
+          >
+            <AlertTriangle className="mr-1 h-3 w-3" />
+            {issueCount}
+          </Badge>
+        )}
       </div>
 
       <CostBars input={result.promptTokens} output={result.completionTokens} accent={accent} />

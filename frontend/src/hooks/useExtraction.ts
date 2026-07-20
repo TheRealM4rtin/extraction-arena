@@ -8,8 +8,10 @@ import {
   type PageImage,
   type VisionConfig,
 } from '@/lib/api';
-import { buildExtractionPrompt, expectedKinds, type GoldenValue } from '@/lib/dataset';
+import { buildCanonicalPrompt } from '@/lib/canonical/prompt';
+import type { SourceContext } from '@/lib/canonical/adapters/types';
 import { useAppStore } from '@/store';
+import type { GoldenValue } from '@/lib/dataset';
 
 export interface RunResult {
   glm: ModelResult;
@@ -48,8 +50,13 @@ export function useExtraction() {
       if (pages.length === 0) throw new Error('This dataset has no pages.');
 
       const documentContext = customContexts[active.id] ?? active.pdfName;
-      const prompt = buildExtractionPrompt(active.golden, documentContext);
-      const kinds = expectedKinds(active.golden);
+      const prompt = buildCanonicalPrompt(active.canonical, documentContext);
+      const ctx: SourceContext = {
+        recordId: active.id,
+        receivedAt: new Date().toISOString(),
+        sourcePages: pages.map((p) => ({ page_id: `file:${p.page}`, page_number: p.page })),
+        sourceFormat: active.pdfName,
+      };
 
       const allConfigs: Array<{ key: 'glm' | 'gpt'; cfg: VisionConfig }> = [
         {
@@ -100,7 +107,7 @@ export function useExtraction() {
       const tasks = configs.map(async ({ key, cfg }) => {
         try {
           const value: ModelResult = {
-            ...(await callVisionModel(cfg, pages, prompt, kinds, signal)),
+            ...(await callVisionModel(cfg, pages, prompt, ctx, signal)),
             status: 'done',
           };
           commit(key, value);

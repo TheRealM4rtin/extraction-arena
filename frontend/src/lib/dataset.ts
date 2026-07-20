@@ -1,4 +1,5 @@
 import type { PageImage } from './api';
+import type { RescueSheetV1 } from './canonical/schema';
 
 /** Sentinel string for an absent scalar field. */
 export const NOT_FOUND = 'not_found';
@@ -37,10 +38,32 @@ export interface DatasetMeta {
   createdAt: number;
 }
 
-/** Full dataset loaded into memory when selected. */
+/**
+ * Raw source record — the unmodified original payload (pasted golden JSON, OEM
+ * JSON, etc.) preserved verbatim for auditability and reprocessing. The app
+ * never reads from this directly; it reads the normalized `canonical` record.
+ */
+export interface RawSourceRecord {
+  ingestion_id: string;
+  source_type: 'oem_json' | 'vlm_extraction' | 'ocr' | 'pdf' | 'image' | 'manual_authoring' | 'legacy_golden';
+  source_format: string;
+  received_at: string; // ISO 8601
+  raw_payload: unknown;
+}
+
+/**
+ * Full dataset loaded into memory when selected.
+ *
+ * `canonical` is the source of truth (rescue-sheet-ev-v1.0). `golden` is a
+ * DERIVED projection (`GoldenDataset`) kept so the existing scoring engine,
+ * metrics, and golden-facing UI run unchanged. `rawSource` preserves the
+ * unmodified input for audit.
+ */
 export interface DatasetRecord extends DatasetMeta {
   pages: PageImage[];
-  golden: GoldenDataset;
+  canonical: RescueSheetV1;
+  golden: GoldenDataset; // derived from `canonical` via goldenProjection()
+  rawSource?: RawSourceRecord;
 }
 
 export type ValueKind = 'string' | 'array' | 'object';
@@ -51,15 +74,11 @@ export function valueKind(v: unknown): ValueKind {
   return 'string';
 }
 
-export function goldenFieldKeys(g: GoldenDataset): string[] {
-  return Object.keys(g.golden_extraction);
-}
-
 /**
  * Build a deeply-nested partial object that sets `value` at the given path.
  * Used by the Dataset Viewer editor to produce a patch for `updateDataset`.
- * e.g. buildNestedPatch(['golden', 'golden_extraction', 'foo', 'value'], 'x')
- *   -> { golden: { golden_extraction: { foo: { value: 'x' } } } }
+ * e.g. buildNestedPatch(['canonical', 'vehicle', 'manufacturer'], 'Tesla')
+ *   -> { canonical: { vehicle: { manufacturer: 'Tesla' } } }
  */
 export function buildNestedPatch(path: string[], value: unknown): Record<string, unknown> {
   if (path.length === 0) throw new Error('buildNestedPatch: path must be non-empty');
@@ -67,155 +86,48 @@ export function buildNestedPatch(path: string[], value: unknown): Record<string,
   return { [head]: rest.length === 0 ? value : buildNestedPatch(rest, value) };
 }
 
-export function humanLabel(key: string): string {
-  return key
+/** Path segments that are too generic alone — include the parent for clarity. */
+const GENERIC_TAIL = new Set([
+  'ordered_steps',
+  'components',
+  'guidance',
+  'devices',
+  'access_methods',
+  'prohibitions',
+  'energy_sources',
+  'high_voltage_cables',
+  'fluids',
+  'pyrotechnic_devices',
+  'prohibited_actions',
+  'prohibited_methods',
+  'monitoring_requirements',
+  'suppression_cooling_actions',
+  'extrication_constraints',
+  'lift_areas',
+  'stabilization_points',
+  'no_contact_zones',
+  'structural_zones',
+  'glazing',
+  'warnings',
+]);
+
+function titleCaseSegment(seg: string): string {
+  return seg
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (c) => c.toUpperCase())
     .replace(/\bHv\b/g, 'HV')
     .replace(/\bSrs\b/g, 'SRS');
 }
 
-/** Normalize + validate an arbitrary parsed JSON into a GoldenDataset. */
-export function normalizeGolden(input: unknown): GoldenDataset {
-  const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
-  const ge = obj.golden_extraction;
-  if (!ge || typeof ge !== 'object' || Array.isArray(ge)) {
-    throw new Error('A "golden_extraction" object is required.');
+export function humanLabel(key: string): string {
+  // Canonical paths are dotted. Use last two segments when the tail is generic
+  // (e.g. multiple "ordered_steps" under different procedures).
+  if (!key.includes('.')) return titleCaseSegment(key);
+  const parts = key.split('.');
+  const last = parts[parts.length - 1] ?? key;
+  if (GENERIC_TAIL.has(last) && parts.length >= 2) {
+    const parent = parts[parts.length - 2] ?? '';
+    return `${titleCaseSegment(parent)} · ${titleCaseSegment(last)}`;
   }
-
-  const golden_extraction: GoldenExtraction = {};
-  for (const [key, rawField] of Object.entries(ge as Record<string, unknown>)) {
-    const field =
-      rawField && typeof rawField === 'object' && !Array.isArray(rawField)
-        ? (rawField as Record<string, unknown>)
-        : { value: rawField };
-    golden_extraction[key] = {
-      value: normalizeValue(field.value),
-      difficulty: typeof field.difficulty === 'string' ? field.difficulty : undefined,
-      source: typeof field.source === 'string' ? field.source : undefined,
-    };
-  }
-
-  if (Object.keys(golden_extraction).length === 0) {
-    throw new Error('golden_extraction must contain at least one field.');
-  }
-
-  return {
-    golden_extraction,
-    model_evaluation_hints:
-      obj.model_evaluation_hints && typeof obj.model_evaluation_hints === 'object'
-        ? (obj.model_evaluation_hints as EvalHints)
-        : undefined,
-    reasoning_log: Array.isArray(obj.reasoning_log) ? (obj.reasoning_log as string[]) : undefined,
-  };
-}
-
-function normalizeValue(v: unknown): GoldenValue {
-  if (Array.isArray(v)) {
-    return v.map((x) => String(x).trim()).filter((s) => s.length > 0);
-  }
-  if (v !== null && typeof v === 'object') {
-    const o: Record<string, string> = {};
-    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-      o[String(k)] = String(val).trim();
-    }
-    return o;
-  }
-  if (v === null || v === undefined) return NOT_FOUND;
-  return String(v).trim();
-}
-
-/** Map of field key -> expected value kind, derived from the golden dataset. */
-export function expectedKinds(g: GoldenDataset): Record<string, ValueKind> {
-  const out: Record<string, ValueKind> = {};
-  for (const [key, field] of Object.entries(g.golden_extraction)) {
-    out[key] = valueKind(field.value);
-  }
-  return out;
-}
-
-/**
- * Coerce an arbitrary model response into the field shape defined by the golden
- * dataset. Never throws; missing/malformed fields become "not_found" / [] / {}.
- */
-export function coerceExtracted(
-  raw: unknown,
-  kinds: Record<string, ValueKind>
-): Record<string, GoldenValue> {
-  const obj =
-    raw && typeof raw === 'object' && !Array.isArray(raw)
-      ? (raw as Record<string, unknown>)
-      : {};
-
-  const out: Record<string, GoldenValue> = {};
-  for (const [key, kind] of Object.entries(kinds)) {
-    out[key] = coerceValue(obj[key], kind);
-  }
-  return out;
-}
-
-function coerceValue(v: unknown, kind: ValueKind): GoldenValue {
-  if (kind === 'array') {
-    if (Array.isArray(v)) {
-      return v
-        .map((x) => String(x).trim())
-        .filter((s) => s.length > 0 && s.toLowerCase() !== NOT_FOUND);
-    }
-    if (typeof v === 'string' && v.trim() && v.toLowerCase() !== NOT_FOUND) {
-      return [v.trim()];
-    }
-    return [];
-  }
-  if (kind === 'object') {
-    if (v && typeof v === 'object' && !Array.isArray(v)) {
-      const o: Record<string, string> = {};
-      for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-        o[String(k)] = String(val).trim();
-      }
-      return o;
-    }
-    return {};
-  }
-  if (typeof v === 'string') return v.trim();
-  if (v === null || v === undefined) return NOT_FOUND;
-  if (Array.isArray(v)) return v.map((x) => String(x).trim()).join('; ');
-  return String(v).trim();
-}
-
-/**
- * Build the extraction prompt for the vision models from the golden dataset's
- * field list. Uses ONLY field keys/types — never the golden answers themselves.
- *
- * `documentContext` is a short description of the document (e.g. its filename)
- * injected into the prompt to ground the model; pass an empty string to omit it.
- */
-export function buildExtractionPrompt(g: GoldenDataset, documentContext = ''): string {
-  const keys = goldenFieldKeys(g);
-  const fieldLines = keys.map((key) => {
-    const field = g.golden_extraction[key];
-    const kind = valueKind(field.value);
-    const typeHint =
-      kind === 'array'
-        ? 'array of strings'
-        : kind === 'object'
-          ? 'JSON object mapping labels to strings'
-          : 'string';
-    return `- "${key}" (${typeHint}): ${humanLabel(key)}`;
-  });
-
-  const ctx = documentContext.trim();
-  const contextClause = ctx ? `The document is: ${ctx}.` : '';
-
-  return `You are a document data-extraction engine. ${contextClause} Analyze the provided document images and extract ONLY the following fields as a single valid JSON object.
-
-${fieldLines.join('\n')}
-
-Rules:
-- Extract ONLY what is explicitly visible in the document. Do not infer or hallucinate values.
-- String fields: return the shortest self-contained text span that answers the field. If absent, return "not_found". Do not repeat the field name in the value.
-- String fields that span multiple lines or paragraphs must be returned as a single string, never multiple strings.
-- Array fields: return an array of strings in document order. If absent, return [].
-- Object fields: return an object mapping keys to strings. If absent, return {}.
-- Preserve exact wording, casing, and ordering as they appear in the document.
-- Return ONLY valid JSON with no markdown fences, no commentary, and exactly these keys: ${keys.join(', ')}.`;
+  return titleCaseSegment(last);
 }

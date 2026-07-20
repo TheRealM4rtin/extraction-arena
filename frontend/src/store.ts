@@ -1,11 +1,7 @@
 import { create } from 'zustand';
-import {
-  type DatasetMeta,
-  type DatasetRecord,
-  type GoldenDataset,
-  buildExtractionPrompt,
-  expectedKinds,
-} from './lib/dataset';
+import { type DatasetMeta, type DatasetRecord, NOT_FOUND } from './lib/dataset';
+import { buildCanonicalPrompt } from './lib/canonical/prompt';
+import { ingestToCanonical } from './lib/canonical/ingest';
 import {
   deleteDataset,
   deepMerge,
@@ -15,7 +11,6 @@ import {
   updateDataset,
 } from './lib/db';
 import { type ModelResult, type PageImage } from './lib/api';
-import { NOT_FOUND } from './lib/dataset';
 import { type FieldMetricConfig } from './lib/metrics';
 
 export type ConvertStatus = 'idle' | 'converting' | 'ready' | 'error';
@@ -96,7 +91,7 @@ interface AppState {
     pdfName: string;
     dpi: number;
     pages: PageImage[];
-    golden: GoldenDataset;
+    rawJson: unknown;
   }) => Promise<string>;
   removeDataset: (id: string) => Promise<void>;
   selectDataset: (id: string) => Promise<void>;
@@ -196,16 +191,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `ds-${Date.now()}`;
+    const ingested = ingestToCanonical({
+      rawJson: input.rawJson,
+      pages: input.pages,
+      pdfName: input.pdfName,
+      recordId: id,
+      sourceFormat: input.pdfName || 'arbitrary_json',
+    });
     const record: DatasetRecord = {
       id,
       name: input.name.trim() || 'Untitled dataset',
       pdfName: input.pdfName,
       dpi: input.dpi,
       pageCount: input.pages.length,
-      fieldCount: Object.keys(input.golden.golden_extraction).length,
+      fieldCount: Object.keys(ingested.golden.golden_extraction).length,
       createdAt: Date.now(),
       pages: input.pages,
-      golden: input.golden,
+      canonical: ingested.canonical,
+      golden: ingested.golden,
+      rawSource: ingested.rawSource,
     };
     await saveDataset(record);
     await get().loadCatalog();
@@ -307,7 +311,7 @@ export function useActivePrompt(): string | null {
   const customContexts = useAppStore((s) => s.customContexts);
   if (!active) return null;
   const ctx = customContexts[active.id] ?? active.pdfName;
-  return buildExtractionPrompt(active.golden, ctx);
+  return buildCanonicalPrompt(active.canonical, ctx);
 }
 
 /**
@@ -324,7 +328,13 @@ export function useDocumentContext(): { value: string; isCustom: boolean } {
 
 export function useActiveKinds(): Record<string, import('./lib/dataset').ValueKind> {
   const active = useAppStore((s) => s.active);
-  return active ? expectedKinds(active.golden) : {};
+  if (!active) return {};
+  const out: Record<string, import('./lib/dataset').ValueKind> = {};
+  for (const [key, field] of Object.entries(active.golden.golden_extraction)) {
+    const v = field.value;
+    out[key] = Array.isArray(v) ? 'array' : v !== null && typeof v === 'object' ? 'object' : 'string';
+  }
+  return out;
 }
 
 /**

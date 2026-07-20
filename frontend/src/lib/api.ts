@@ -1,4 +1,9 @@
-import { coerceExtracted, NOT_FOUND, type GoldenValue, type ValueKind } from './dataset';
+import { type GoldenValue } from './dataset';
+import { normalizeVlmToDraft, mergeDrafts } from './canonical/vlm';
+import { project } from './canonical/project';
+import { validate, type Issue } from './canonical/validate';
+import type { SourceContext } from './canonical/adapters/types';
+import type { RescueSheetV1Draft } from './canonical/schema';
 
 export interface PageImage {
   page: number;
@@ -13,6 +18,10 @@ export interface ModelResult {
   modelId: string;
   label: string;
   data: Record<string, GoldenValue>;
+  /** Canonical draft produced by normalizing the model's raw JSON. */
+  draft?: RescueSheetV1Draft;
+  /** Validation issues on the canonical draft (informational; never blocks). */
+  validationIssues?: Issue[];
   rawText: string;
   elapsedMs: number;
   promptTokens: number;
@@ -43,7 +52,7 @@ interface BackendResponse {
 }
 
 interface VisionPayloadResult {
-  data: Record<string, GoldenValue>;
+  draft: RescueSheetV1Draft;
   rawText: string;
   promptTokens: number;
   completionTokens: number;
@@ -76,24 +85,29 @@ export async function convertPdfToPages(
 }
 /**
  * Call an OpenAI-compatible vision endpoint (Z.AI GLM-5V-Turbo or OpenAI gpt-5.4-mini).
- * Sends every page image + the dataset-driven prompt. temperature: 0 and
- * response_format: json_object per the fixed integration spec. Output is coerced
- * to the golden field shape before it is ever displayed/scored.
+ * Sends every page image + the canonical-schema-driven prompt. temperature: 0 and
+ * response_format: json_object per the fixed integration spec. The raw model JSON
+ * is normalized to a canonical draft, validated, then projected to the field map
+ * the scorer consumes.
  */
 export async function callVisionModel(
   config: VisionConfig,
   pages: PageImage[],
   prompt: string,
-  kinds: Record<string, ValueKind>,
+  ctx: SourceContext,
   signal?: AbortSignal
 ): Promise<Omit<ModelResult, 'status' | 'error'>> {
   const startedAt = performance.now();
-  const result = await callVisionWithFallback(config, pages, prompt, kinds, signal);
+  const result = await callVisionWithFallback(config, pages, prompt, ctx, signal);
+  const data = flattenProjection(project(result.draft));
+  const validation = validate(result.draft);
 
   return {
     modelId: config.modelId,
     label: config.label,
-    data: result.data,
+    data,
+    draft: result.draft,
+    validationIssues: validation.issues,
     rawText: result.rawText,
     elapsedMs: performance.now() - startedAt,
     promptTokens: result.promptTokens,
@@ -102,15 +116,24 @@ export async function callVisionModel(
   };
 }
 
+/** Flatten a canonical projection into the `path -> GoldenValue` map the scorer reads. */
+function flattenProjection(proj: ReturnType<typeof project>): Record<string, GoldenValue> {
+  const out: Record<string, GoldenValue> = {};
+  for (const [path, field] of Object.entries(proj)) {
+    out[path] = field.value;
+  }
+  return out;
+}
+
 async function callVisionWithFallback(
   config: VisionConfig,
   pages: PageImage[],
   prompt: string,
-  kinds: Record<string, ValueKind>,
+  ctx: SourceContext,
   signal?: AbortSignal
 ): Promise<VisionPayloadResult> {
   try {
-    return await callVisionOnce(config, pages, prompt, kinds, signal);
+    return await callVisionOnce(config, pages, prompt, ctx, signal);
   } catch (error) {
     if (isAbortError(error) || signal?.aborted) throw error;
     if (!isHttpStatusError(error, 413)) throw error;
@@ -126,10 +149,10 @@ async function callVisionWithFallback(
     const results: VisionPayloadResult[] = [];
 
     for (const batch of [left, right]) {
-      results.push(await callVisionWithFallback(config, batch, prompt, kinds, signal));
+      results.push(await callVisionWithFallback(config, batch, prompt, ctx, signal));
     }
 
-    return mergeChunkResults(results, kinds);
+    return mergeChunkResults(results);
   }
 }
 
@@ -137,7 +160,7 @@ async function callVisionOnce(
   config: VisionConfig,
   pages: PageImage[],
   prompt: string,
-  kinds: Record<string, ValueKind>,
+  ctx: SourceContext,
   signal?: AbortSignal
 ): Promise<VisionPayloadResult> {
   const content: unknown[] = [
@@ -177,10 +200,10 @@ async function callVisionOnce(
   const promptTokens = Number(usage.prompt_tokens ?? 0);
   const completionTokens = Number(usage.completion_tokens ?? 0);
 
-  const data = coerceExtracted(parseJsonLoose(contentText), kinds);
+  const draft = normalizeVlmToDraft(parseJsonLoose(contentText), ctx);
 
   return {
-    data,
+    draft,
     rawText: contentText,
     promptTokens,
     completionTokens,
@@ -190,21 +213,10 @@ async function callVisionOnce(
   };
 }
 
-function mergeChunkResults(
-  results: VisionPayloadResult[],
-  kinds: Record<string, ValueKind>
-): VisionPayloadResult {
-  const data: Record<string, GoldenValue> = {};
-
-  for (const [key, kind] of Object.entries(kinds)) {
-    data[key] = mergeFieldValue(
-      results.map((result) => result.data[key]),
-      kind
-    );
-  }
-
+/** Merge per-chunk canonical drafts + usage for the HTTP 413 page-split fallback. */
+function mergeChunkResults(results: VisionPayloadResult[]): VisionPayloadResult {
   return {
-    data,
+    draft: mergeDrafts(results.map((r) => r.draft)),
     rawText: results
       .map((result, index) => result.rawText.trim() && `Batch ${index + 1}\n${result.rawText.trim()}`)
       .filter(Boolean)
@@ -213,48 +225,6 @@ function mergeChunkResults(
     completionTokens: results.reduce((sum, result) => sum + result.completionTokens, 0),
     estimatedCostUsd: results.reduce((sum, result) => sum + result.estimatedCostUsd, 0),
   };
-}
-
-function mergeFieldValue(values: Array<GoldenValue | undefined>, kind: ValueKind): GoldenValue {
-  if (kind === 'array') {
-    const merged: string[] = [];
-    const seen = new Set<string>();
-
-    for (const value of values) {
-      if (!Array.isArray(value)) continue;
-      for (const item of value) {
-        const normalized = normalizeText(item);
-        if (!normalized || seen.has(normalized)) continue;
-        seen.add(normalized);
-        merged.push(item);
-      }
-    }
-
-    return merged;
-  }
-
-  if (kind === 'object') {
-    const merged: Record<string, string> = {};
-
-    for (const value of values) {
-      if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
-      for (const [key, item] of Object.entries(value)) {
-        if (!(key in merged) && !isAbsentScalar(item)) {
-          merged[key] = item;
-        }
-      }
-    }
-
-    return merged;
-  }
-
-  for (const value of values) {
-    if (typeof value === 'string' && !isAbsentScalar(value)) {
-      return value;
-    }
-  }
-
-  return NOT_FOUND;
 }
 
 function splitPages(pages: PageImage[]): [PageImage[], PageImage[]] {
@@ -273,15 +243,6 @@ function formatHttpError(status: number, text: string): string {
 
 function summarizeBodyText(text: string): string {
   return text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
-}
-
-function normalizeText(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[^a-z0-9 ]/g, '');
-}
-
-function isAbsentScalar(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  return normalized === '' || normalized === NOT_FOUND;
 }
 
 function isHttpStatusError(error: unknown, status: number): error is HttpStatusError {
