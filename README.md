@@ -1,6 +1,6 @@
 # Extraction Arena
 
-LLM vision-model evaluation dashboard. Create a **dataset** (upload a PDF + its golden extraction JSON), then run GLM-5V-Turbo (Z.AI) and GPT-5.4 mini (OpenAI) side-by-side and score each field against the golden truth. The seed dataset is the 4-page Tesla Cybertruck first-responder rescue sheet, but the schema is dataset-driven — any PDF + golden JSON works. **Datasets persist locally (IndexedDB) and survive restarts.**
+LLM vision-model evaluation dashboard. Create a **dataset** (upload a PDF + paste its golden rescue-sheet JSON), then run GLM-5V-Turbo (Z.AI) and GPT-5.4 mini (OpenAI) side-by-side and score each field against the golden truth. The seed dataset is the 4-page Tesla Cybertruck first-responder rescue sheet. The app is built around a **canonical, versioned rescue-sheet JSON contract** (`rescue-sheet-ev-v1.1` rich domain + envelope; v1.0 still migrates); pasted/OEM/model JSON is envelope-stamped or adapted into that contract and validated before it is scored. **Datasets persist locally (IndexedDB) and survive restarts.**
 
 ## Architecture
 
@@ -37,7 +37,7 @@ docker compose up --build
 
 ## Datasets
 
-A dataset = `{ name, pdfName, dpi, pages[], golden }`. The `golden_extraction` object's keys define the extraction schema; each field's `value` may be a **string, string[], or `{key: string}` object** (with optional `difficulty` / `source` metadata). Scoring is per-field exact match (set-based for arrays, key/value for objects) plus a partial-credit metric. Multiple named datasets can coexist; all are stored locally in IndexedDB.
+A dataset = `{ name, pdfName, dpi, pages[], canonical, golden, rawSource }`. The pasted JSON is the **raw source**; rich ISO-style gold is envelope-stamped into **canonical** `rescue-sheet-ev-v1.1`, free-form `{ golden_extraction }` goes through the Tesla adapter, validation runs (structural JSON Schema + domain rules), and a **golden projection** (flat path → value map) is derived for the scorer. Unrecognized free-form keys are preserved under `legacy_fields` (never lost). Scoring is per-field exact match (order-sensitive for arrays) plus a partial-credit metric. Extraction always prompts with the full empty v1.1 skeleton (never golden answers). Model output is normalized (`normalizeVlmToDraft`) then projected and scored. Multiple named datasets can coexist; all are stored locally in IndexedDB. Pre-v1 datasets are migrated lazily on load.
 
 ## Environment
 
