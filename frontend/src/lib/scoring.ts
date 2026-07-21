@@ -1,11 +1,22 @@
+/**
+ * Compatibility facade over the unified evaluation engine.
+ * Prefer importing from `@/lib/evaluation` for new code.
+ */
+import type { GoldenDataset, GoldenValue, ValueKind } from './dataset';
 import {
-  type GoldenDataset,
-  type GoldenValue,
-  type ValueKind,
-  valueKind,
-  humanLabel,
-} from './dataset';
-import { NOT_FOUND } from './dataset';
+  evaluateDataset as evalDataset,
+  evaluateField,
+  isAbsentValue,
+  normalizeStr,
+  tokenizeScalar,
+  accuracyBand,
+  resolveFieldConfig,
+  type DatasetEvaluation,
+  type FieldEvaluation,
+  type FieldEvalConfig,
+} from './evaluation';
+
+export { isAbsentValue, normalizeStr, tokenizeScalar, accuracyBand };
 
 export interface FieldScore {
   key: string;
@@ -16,6 +27,8 @@ export interface FieldScore {
   difficulty?: string;
   source?: string;
   kind: ValueKind;
+  /** Full evaluation when available (same engine as metrics). */
+  evaluation?: FieldEvaluation;
 }
 
 export interface ScoreResult {
@@ -26,173 +39,11 @@ export interface ScoreResult {
   accuracy: number;
   /** 0-100 mean partial credit (softer metric). */
   partialAccuracy: number;
-}
-
-export function isAbsentValue(v: GoldenValue): boolean {
-  if (Array.isArray(v)) return v.length === 0;
-  if (typeof v === 'object') return Object.keys(v).length === 0;
-  return v === NOT_FOUND || v.trim() === '';
-}
-
-export function normalizeStr(s: string): string {
-  return s
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[^a-z0-9 ]/g, '');
-}
-
-const SCALAR_STOP_WORDS = new Set([
-  'a',
-  'an',
-  'and',
-  'are',
-  'as',
-  'at',
-  'be',
-  'by',
-  'for',
-  'from',
-  'in',
-  'into',
-  'is',
-  'it',
-  'its',
-  'of',
-  'on',
-  'or',
-  'the',
-  'to',
-  'with',
-]);
-
-const NEGATION_TOKENS = ['no', 'not', 'never', 'without'];
-
-function tokenizeWords(value: string): string[] {
-  const normalized = value
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .trim()
-    .toLowerCase()
-    .replace(/([a-z])([0-9])/g, '$1 $2')
-    .replace(/([0-9])([a-z])/g, '$1 $2')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return normalized ? normalized.split(' ') : [];
-}
-
-/** Split a scalar into comparable tokens (case/digit-boundary aware). Exported
- *  so the Metrics Dashboard computes partial overlap consistently with this
- *  scorer rather than reinventing its own tokenizer. */
-export function tokenizeScalar(value: string): string[] {
-  return tokenizeWords(value);
-}
-
-function removeScalarNoise(tokens: string[]): string[] {
-  return tokens.filter((token) => !SCALAR_STOP_WORDS.has(token));
-}
-
-function stripFieldTokens(tokens: string[], fieldKey: string): string[] {
-  const ignored = new Set(removeScalarNoise(tokenizeWords(fieldKey)));
-  if (ignored.size === 0) return tokens;
-  return tokens.filter((token) => !ignored.has(token));
-}
-
-function countTokens(tokens: string[]): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const token of tokens) {
-    counts.set(token, (counts.get(token) ?? 0) + 1);
-  }
-  return counts;
-}
-
-function sharedTokenCount(modelTokens: string[], goldenTokens: string[]): number {
-  if (modelTokens.length === 0 || goldenTokens.length === 0) return 0;
-
-  const remaining = countTokens(goldenTokens);
-  let matched = 0;
-
-  for (const token of modelTokens) {
-    const available = remaining.get(token) ?? 0;
-    if (available <= 0) continue;
-    remaining.set(token, available - 1);
-    matched += 1;
-  }
-
-  return matched;
-}
-
-function sameTokenMultiset(a: string[], b: string[]): boolean {
-  if (a.length === 0 || b.length === 0 || a.length !== b.length) return false;
-
-  const aCounts = countTokens(a);
-  const bCounts = countTokens(b);
-  if (aCounts.size !== bCounts.size) return false;
-
-  for (const [token, count] of aCounts.entries()) {
-    if (bCounts.get(token) !== count) return false;
-  }
-
-  return true;
-}
-
-function sameNegationState(a: string[], b: string[]): boolean {
-  const aSet = new Set(a);
-  const bSet = new Set(b);
-  return NEGATION_TOKENS.every((token) => aSet.has(token) === bSet.has(token));
-}
-
-function overlapRatio(modelTokens: string[], goldenTokens: string[]): number {
-  if (goldenTokens.length === 0) return 0;
-  return sharedTokenCount(modelTokens, goldenTokens) / goldenTokens.length;
-}
-
-function scalarTokens(value: string, fieldKey: string): string[] {
-  return stripFieldTokens(removeScalarNoise(tokenizeWords(value)), fieldKey);
-}
-
-function scalarMatch(model: string, golden: string, fieldKey: string): MatchOutcome {
-  const normalizedModel = normalizeStr(model);
-  const normalizedGolden = normalizeStr(golden);
-  if (normalizedModel === normalizedGolden) {
-    return { match: true, partial: 1 };
-  }
-
-  const generalModelTokens = removeScalarNoise(tokenizeWords(model));
-  const generalGoldenTokens = removeScalarNoise(tokenizeWords(golden));
-  const coreModelTokens = scalarTokens(model, fieldKey);
-  const coreGoldenTokens = scalarTokens(golden, fieldKey);
-
-  // Ground-truth scalars sometimes include field-label boilerplate like
-  // "Coolant is blue or orange." while the model returns just "blue or orange".
-  const match =
-    sameNegationState(generalModelTokens, generalGoldenTokens) &&
-    (sameTokenMultiset(generalModelTokens, generalGoldenTokens) ||
-      sameTokenMultiset(coreModelTokens, coreGoldenTokens));
-
-  const partial = Math.max(
-    overlapRatio(generalModelTokens, generalGoldenTokens),
-    overlapRatio(coreModelTokens, coreGoldenTokens)
-  );
-
-  return { match, partial };
-}
-
-function asArray(v: GoldenValue): string[] {
-  if (Array.isArray(v)) return v.map((x) => String(x));
-  if (typeof v === 'object') return Object.entries(v).map(([k, val]) => `${k} ${val}`);
-  return [String(v)];
-}
-
-function asMap(v: GoldenValue): Record<string, string> {
-  if (typeof v === 'object' && !Array.isArray(v)) return v;
-  if (Array.isArray(v)) {
-    const o: Record<string, string> = {};
-    v.forEach((x, i) => (o[String(i)] = String(x)));
-    return o;
-  }
-  return { value: String(v) };
+  meanPrecision?: number;
+  meanRecall?: number;
+  meanF1?: number;
+  /** Full dataset evaluation (single engine). */
+  evaluation?: DatasetEvaluation;
 }
 
 export interface MatchOutcome {
@@ -201,81 +52,50 @@ export interface MatchOutcome {
 }
 
 /** Compare a model value against the golden value for a single field. */
-export function fieldMatch(model: GoldenValue, golden: GoldenValue, fieldKey = ''): MatchOutcome {
-  const mAbsent = isAbsentValue(model);
-  const gAbsent = isAbsentValue(golden);
-  if (mAbsent || gAbsent) {
-    const ok = mAbsent && gAbsent;
-    return { match: ok, partial: ok ? 1 : 0 };
-  }
-
-  const gKind = valueKind(golden);
-
-  if (gKind === 'array') {
-    // Order-sensitive: compare position-by-position. A reordered array does
-    // NOT count as a match — the prompt instructs models to preserve document
-    // order, numbering, and casing, so the score must enforce it. Items beyond
-    // the shorter array's length are treated as positional mismatches.
-    const ma = asArray(model).map(normalizeStr);
-    const ga = asArray(golden).map(normalizeStr);
-    const minLen = Math.min(ma.length, ga.length);
-    let matched = 0;
-    for (let i = 0; i < minLen; i++) {
-      if (ma[i] === ga[i]) matched += 1;
-    }
-    const exact = ma.length === ga.length && matched === ga.length;
-    return { match: exact, partial: ga.length === 0 ? 0 : matched / ga.length };
-  }
-
-  if (gKind === 'object') {
-    const mo = asMap(model);
-    const go = asMap(golden);
-    const goldenKeys = Object.keys(go);
-    let matched = 0;
-    for (const k of goldenKeys) {
-      if (normalizeStr(mo[k] ?? '') === normalizeStr(go[k])) matched++;
-    }
-    const exact = Object.keys(mo).length === goldenKeys.length && matched === goldenKeys.length;
-    return { match: exact, partial: goldenKeys.length === 0 ? 0 : matched / goldenKeys.length };
-  }
-
-  // scalar
-  return scalarMatch(String(model), String(golden), fieldKey);
+export function fieldMatch(
+  model: GoldenValue,
+  golden: GoldenValue,
+  fieldKey = '',
+  config?: Partial<FieldEvalConfig>
+): MatchOutcome {
+  const resolved = resolveFieldConfig(fieldKey, config);
+  const ev = evaluateField(model, golden, fieldKey, resolved);
+  return { match: ev.match, partial: ev.partial };
 }
 
+/**
+ * Score one model extraction against golden.
+ * Uses smart defaults (and optional per-field config overrides).
+ */
 export function scoreDataset(
   extracted: Record<string, GoldenValue>,
-  golden: GoldenDataset
+  golden: GoldenDataset,
+  configMap: Record<string, Partial<FieldEvalConfig>> = {}
 ): ScoreResult {
-  const perField: FieldScore[] = Object.entries(golden.golden_extraction).map(([key, field]) => {
-    const modelValue = extracted[key];
-    const outcome = fieldMatch(modelValue ?? NOT_FOUND, field.value, key);
+  const evaluation = evalDataset(extracted, golden, configMap);
+  const perField: FieldScore[] = evaluation.perField.map((f) => {
+    const meta = golden.golden_extraction[f.key];
     return {
-      key,
-      label: humanLabel(key),
-      match: outcome.match,
-      partial: outcome.partial,
-      difficulty: field.difficulty,
-      source: field.source,
-      kind: valueKind(field.value),
+      key: f.key,
+      label: f.label,
+      match: f.match,
+      partial: f.partial,
+      difficulty: meta?.difficulty,
+      source: meta?.source,
+      kind: f.kind,
+      evaluation: f,
     };
   });
 
-  const matched = perField.filter((f) => f.match).length;
-  const total = perField.length;
-  const partialSum = perField.reduce((acc, f) => acc + f.partial, 0);
-
   return {
     perField,
-    matched,
-    total,
-    accuracy: total === 0 ? 0 : Math.round((matched / total) * 100),
-    partialAccuracy: total === 0 ? 0 : Math.round((partialSum / total) * 100),
+    matched: evaluation.matched,
+    total: evaluation.total,
+    accuracy: evaluation.accuracy,
+    partialAccuracy: evaluation.partialAccuracy,
+    meanPrecision: evaluation.meanPrecision,
+    meanRecall: evaluation.meanRecall,
+    meanF1: evaluation.meanF1,
+    evaluation,
   };
-}
-
-export function accuracyBand(accuracy: number): 'red' | 'yellow' | 'green' {
-  if (accuracy >= 80) return 'green';
-  if (accuracy >= 50) return 'yellow';
-  return 'red';
 }

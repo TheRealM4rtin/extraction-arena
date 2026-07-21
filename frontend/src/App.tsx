@@ -70,13 +70,17 @@ export default function App() {
     const state = useAppStore.getState();
     const golden = state.active?.golden;
     if (!golden) return;
+    const configMap =
+      (state.active && state.metricConfigs[state.active.id]) ||
+      state.active?.fieldEvalConfigs ||
+      {};
     const payload = {
       generatedAt: new Date().toISOString(),
       dataset: state.active?.name,
       dpi: state.active?.dpi,
       golden,
-      glm: { ...state.glm, score: scoreDataset(state.glm.data, golden) },
-      gpt: { ...state.gpt, score: scoreDataset(state.gpt.data, golden) },
+      glm: { ...state.glm, score: scoreDataset(state.glm.data, golden, configMap) },
+      gpt: { ...state.gpt, score: scoreDataset(state.gpt.data, golden, configMap) },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

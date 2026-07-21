@@ -11,7 +11,7 @@ import {
   updateDataset,
 } from './lib/db';
 import { type ModelResult, type PageImage } from './lib/api';
-import { type FieldMetricConfig } from './lib/metrics';
+import { type FieldEvalConfig, resolveFieldConfig } from './lib/metrics';
 
 export type ConvertStatus = 'idle' | 'converting' | 'ready' | 'error';
 
@@ -43,12 +43,11 @@ interface AppState {
   customContexts: Record<string, string>;
 
   /**
-   * Per-dataset, per-field metric configuration for the Metrics Dashboard
-   * (match strategy + optimization priority). Keyed by dataset id, then field
-   * key. In-memory only (same scope as customContexts); fields without an
-   * entry fall back to DEFAULT_FIELD_CONFIG from lib/metrics.
+   * Per-dataset, per-field evaluation config overrides (match strategy, list
+   * mode, priority). Keyed by dataset id, then field key. Mirrored from
+   * `active.fieldEvalConfigs` and persisted with the dataset on edit.
    */
-  metricConfigs: Record<string, Record<string, FieldMetricConfig>>;
+  metricConfigs: Record<string, Record<string, Partial<FieldEvalConfig>>>;
 
   // Model results (re-scored against the active dataset's golden)
   glm: ModelResult;
@@ -107,10 +106,10 @@ interface AppState {
   /** Set the prompt context for the active dataset (persisted in-memory only). */
   setDocumentContext: (value: string) => void;
 
-  /** Patch the metric config for one field of the active dataset (in-memory). */
+  /** Patch the evaluation config for one field of the active dataset (persisted). */
   setFieldMetricConfig: (
     fieldKey: string,
-    patch: Partial<FieldMetricConfig>
+    patch: Partial<FieldEvalConfig>
   ) => void;
 
   // Results
@@ -220,10 +219,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeDataset: async (id) => {
     await deleteDataset(id);
     set((s) => {
-      const { [id]: _omit, ...rest } = s.customContexts;
+      const { [id]: _omitCtx, ...restCtx } = s.customContexts;
+      const { [id]: _omitCfg, ...restCfg } = s.metricConfigs;
       return {
         active: s.active?.id === id ? null : s.active,
-        customContexts: rest,
+        customContexts: restCtx,
+        metricConfigs: restCfg,
       };
     });
     await get().loadCatalog();
@@ -231,11 +232,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectDataset: async (id) => {
     const record = await loadDataset(id);
-    set({
+    set((s) => ({
       active: record ?? null,
       glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
       gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
-    });
+      // Hydrate in-memory overrides from the persisted dataset record.
+      metricConfigs: record
+        ? {
+            ...s.metricConfigs,
+            [id]: { ...(record.fieldEvalConfigs ?? {}) },
+          }
+        : s.metricConfigs,
+    }));
   },
 
   clearActive: () => set({ active: null }),
@@ -276,18 +284,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   setFieldMetricConfig: (fieldKey, patch) => {
     const active = get().active;
     if (!active) return;
-    set((s) => {
-      const perDs = s.metricConfigs[active.id] ?? {};
-      const prev = perDs[fieldKey] ?? {
-        matchStrategy: 'partial' as const,
-        priority: 'recall' as const,
-      };
-      return {
-        metricConfigs: {
-          ...s.metricConfigs,
-          [active.id]: { ...perDs, [fieldKey]: { ...prev, ...patch } },
-        },
-      };
+    const perDs = get().metricConfigs[active.id] ?? {};
+    const prev = perDs[fieldKey] ?? {};
+    const nextField = { ...prev, ...patch };
+    const nextMap = { ...perDs, [fieldKey]: nextField };
+    set((s) => ({
+      metricConfigs: {
+        ...s.metricConfigs,
+        [active.id]: nextMap,
+      },
+      active: s.active
+        ? { ...s.active, fieldEvalConfigs: nextMap }
+        : s.active,
+    }));
+    // Persist with the dataset (fire-and-forget; UI already updated).
+    void updateDataset(active.id, { fieldEvalConfigs: nextMap }).catch(() => {
+      /* keep in-memory state; next select will re-hydrate from disk if save failed */
     });
   },
 
@@ -338,21 +350,22 @@ export function useActiveKinds(): Record<string, import('./lib/dataset').ValueKi
 }
 
 /**
- * Resolved metric config (with defaults filled in) for one field of the active
- * dataset. Re-renders when the config or active dataset changes.
+ * Resolved evaluation config (smart defaults + user override) for one field
+ * of the active dataset. Re-renders when the config or active dataset changes.
  */
-export function useFieldMetricConfig(
-  fieldKey: string
-): FieldMetricConfig {
+export function useFieldMetricConfig(fieldKey: string): FieldEvalConfig {
+  const override = useAppStore((s) => {
+    const activeId = s.active?.id;
+    return activeId ? s.metricConfigs[activeId]?.[fieldKey] : undefined;
+  });
+  return resolveFieldConfig(fieldKey, override);
+}
+
+/** All per-field overrides for the active dataset (for evaluateDataset). */
+export function useActiveEvalConfigMap(): Record<string, Partial<FieldEvalConfig>> {
   const activeId = useAppStore((s) => s.active?.id);
-  const cfg = useAppStore((s) =>
-    activeId ? s.metricConfigs[activeId]?.[fieldKey] : undefined
-  );
-  return (
-    cfg ?? {
-      matchStrategy: 'partial' as const,
-      priority: 'recall' as const,
-    }
+  return useAppStore((s) =>
+    activeId ? (s.metricConfigs[activeId] ?? {}) : {}
   );
 }
 

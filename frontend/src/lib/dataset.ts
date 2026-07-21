@@ -54,16 +54,28 @@ export interface RawSourceRecord {
 /**
  * Full dataset loaded into memory when selected.
  *
- * `canonical` is the source of truth (rescue-sheet-ev-v1.0). `golden` is a
- * DERIVED projection (`GoldenDataset`) kept so the existing scoring engine,
- * metrics, and golden-facing UI run unchanged. `rawSource` preserves the
- * unmodified input for audit.
+ * `canonical` is the source of truth (rescue-sheet-ev-v1.1). `golden` is a
+ * DERIVED projection (`GoldenDataset`) kept so the evaluation engine, metrics
+ * panel, and golden-facing UI share one flat path→value map. `rawSource`
+ * preserves the unmodified input for audit.
+ *
+ * `fieldEvalConfigs` holds per-field evaluation overrides (strategy, list mode,
+ * priority). Missing keys use smart defaults from `lib/evaluation/defaults`.
  */
 export interface DatasetRecord extends DatasetMeta {
   pages: PageImage[];
   canonical: RescueSheetV1;
   golden: GoldenDataset; // derived from `canonical` via goldenProjection()
   rawSource?: RawSourceRecord;
+  /** Per-field evaluation config overrides; smart defaults fill gaps. */
+  fieldEvalConfigs?: Record<
+    string,
+    {
+      matchStrategy?: 'exact' | 'partial';
+      listMode?: 'sequence' | 'set';
+      priority?: 'precision' | 'recall';
+    }
+  >;
 }
 
 export type ValueKind = 'string' | 'array' | 'object';

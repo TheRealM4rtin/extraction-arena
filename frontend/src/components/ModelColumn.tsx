@@ -5,8 +5,9 @@ import { JsonViewer } from './JsonViewer';
 import { FieldDiffList } from './FieldDiff';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useMemo } from 'react';
 import { scoreDataset } from '@/lib/scoring';
-import { useAppStore } from '@/store';
+import { useActiveEvalConfigMap, useAppStore } from '@/store';
 import { cn, formatMs, formatCost } from '@/lib/utils';
 
 export type ColumnSource = 'glm' | 'gpt';
@@ -22,8 +23,12 @@ interface ModelColumnProps {
 export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProps) {
   const result = useAppStore((s) => s[source]);
   const golden = useAppStore((s) => s.active?.golden ?? null);
+  const configMap = useActiveEvalConfigMap();
 
-  const score = golden ? scoreDataset(result.data, golden) : null;
+  const score = useMemo(
+    () => (golden ? scoreDataset(result.data, golden, configMap) : null),
+    [golden, result.data, configMap]
+  );
   const loading = result.status === 'loading';
   const done = result.status === 'done';
   const error = result.status === 'error';

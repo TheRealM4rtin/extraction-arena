@@ -15,7 +15,8 @@ import type {
  * that scoring / metrics / GT UI consume.
  *
  * Policy: procedure-level and inventory-level paths (~30–50), not every leaf.
- * Arrays preserve document order (scoring is order-sensitive).
+ * Arrays preserve document order. Evaluation uses sequence mode for
+ * ordered_steps and set mode for inventories/warnings by default.
  */
 
 export interface ProjectedField {

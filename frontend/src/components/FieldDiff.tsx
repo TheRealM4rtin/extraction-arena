@@ -152,7 +152,9 @@ function PlainValue({ value }: { value: GoldenValue }) {
  * golden item, pick the unused actual item with the highest word-overlap; if
  * overlap ≥ 0.5, render a word-diff of the pair, otherwise mark the golden
  * item as missing (red strike). Unmatched actual items are appended in
- * purple (added). Mirrors the scorer's order-independent set semantics.
+ * purple (added). Visual only — gate scores come from lib/evaluation (sequence
+ * or set list mode per field). This pane uses greedy item pairing for display.
+
  */
 function ArrayAnswer({ golden, actual }: { golden: string[]; actual: string[] }) {
   if (golden.length === 0 && actual.length === 0) return <AbsentNote label="(empty)" />;
