@@ -1,11 +1,22 @@
 import { useMemo, useState } from 'react';
-import { Network, Filter } from 'lucide-react';
+import { Check, Filter, ListOrdered, Network, X } from 'lucide-react';
 import { useAppStore, type ModelKey } from '@/store';
 import { humanLabel, type GoldenValue } from '@/lib/dataset';
 import { aggregateRows, buildDashboardRows, type PRF } from '@/lib/metrics';
+import {
+  aggregateBySection,
+  evaluateDataset,
+  histogramBins,
+  scoreBand,
+  sortByPriority,
+  type FieldEvaluation,
+} from '@/lib/evaluation';
 import { cn } from '@/lib/utils';
 import { ScoreBadge } from './ScoreBadge';
 import { PageIntro } from './GoldenDatasetPage';
+import { Histogram } from './charts/Histogram';
+import { SectionBars } from './charts/SectionBars';
+import { BandStack } from './charts/BandStack';
 
 type View = 'avg' | ModelKey;
 
@@ -14,6 +25,7 @@ interface ViewMeta {
   label: string;
   active: string;
   ring: string;
+  accent: string;
 }
 
 const VIEW_META: Record<View, ViewMeta> = {
@@ -22,26 +34,27 @@ const VIEW_META: Record<View, ViewMeta> = {
     label: 'Average',
     active: 'border-gt/50 bg-gt/10 text-gt',
     ring: 'shadow-[inset_0_0_0_1px_rgb(var(--gt)_/_0.3)]',
+    accent: '#10B981',
   },
   glm: {
     id: 'glm',
     label: 'GLM-5V-Turbo',
     active: 'border-glm/50 bg-glm/10 text-glm',
     ring: 'shadow-[inset_0_0_0_1px_rgb(var(--glm)_/_0.3)]',
+    accent: '#06B6D4',
   },
   gpt: {
     id: 'gpt',
     label: 'GPT-5.4 mini',
     active: 'border-gpt/50 bg-gpt/10 text-gpt',
     ring: 'shadow-[inset_0_0_0_1px_rgb(var(--gpt)_/_0.3)]',
+    accent: '#8B5CF6',
   },
 };
 
 /**
- * Per-field metrics table: Precision / Recall / F1 computed from extraction
- * results vs the golden dataset. A model selector switches the scores between
- * the cross-model average and each individual model's breakdown. Match strategy
- * + priority columns mirror the per-field config set on the Golden Dataset page.
+ * Evaluation detail dashboard: same engine as the main comparison UI, with
+ * aggregates, lightweight charts, and a per-field table sorted by priority.
  */
 export function DashboardPage() {
   const active = useAppStore((s) => s.active);
@@ -51,9 +64,27 @@ export function DashboardPage() {
 
   const [view, setView] = useState<View>('avg');
 
+  const configMap = useMemo(
+    () => (active ? (metricConfigs[active.id] ?? {}) : {}),
+    [active, metricConfigs]
+  );
+
+  const modelEvals = useMemo(() => {
+    if (!active) return { glm: null, gpt: null };
+    return {
+      glm:
+        glm.status === 'done'
+          ? evaluateDataset(glm.data, active.golden, configMap)
+          : null,
+      gpt:
+        gpt.status === 'done'
+          ? evaluateDataset(gpt.data, active.golden, configMap)
+          : null,
+    };
+  }, [active, glm, gpt, configMap]);
+
   const rows = useMemo(() => {
     if (!active) return [];
-    const configs = metricConfigs[active.id] ?? {};
     const modelResults: Array<{ id: string; data: Record<string, GoldenValue> }> = [];
     if (glm.status === 'done') modelResults.push({ id: 'glm', data: glm.data });
     if (gpt.status === 'done') modelResults.push({ id: 'gpt', data: gpt.data });
@@ -61,31 +92,160 @@ export function DashboardPage() {
       Object.keys(active.golden.golden_extraction),
       active.golden.golden_extraction,
       modelResults,
-      configs
+      configMap
     );
-  }, [active, glm, gpt, metricConfigs]);
+  }, [active, glm, gpt, configMap]);
+
+  const anyDone = glm.status === 'done' || gpt.status === 'done';
+  const availableViews = useMemo(() => {
+    const views: View[] = [];
+    if (anyDone) views.push('avg');
+    if (glm.status === 'done') views.push('glm');
+    if (gpt.status === 'done') views.push('gpt');
+    return views;
+  }, [anyDone, glm.status, gpt.status]);
+
+  const effectiveView: View = availableViews.includes(view) ? view : 'avg';
+  const summary = aggregateRows(rows, effectiveView);
+  const meta = VIEW_META[effectiveView];
+
+  const fieldEvalsForView: FieldEvaluation[] = useMemo(() => {
+    if (effectiveView === 'glm' && modelEvals.glm) return modelEvals.glm.perField;
+    if (effectiveView === 'gpt' && modelEvals.gpt) return modelEvals.gpt.perField;
+    if (modelEvals.glm && modelEvals.gpt) {
+      return rows
+        .filter((r) => r.hasData)
+        .map((r) => {
+          const glmEv = r.evaluationsByModel?.glm;
+          const gptEv = r.evaluationsByModel?.gpt;
+          const base = glmEv ?? gptEv!;
+          return {
+            ...base,
+            match: Boolean(glmEv?.match && gptEv?.match),
+            partial: ((glmEv?.partial ?? 0) + (gptEv?.partial ?? 0)) / 2,
+            precision: r.avg.precision,
+            recall: r.avg.recall,
+            f1: r.avg.f1,
+          };
+        });
+    }
+    return modelEvals.glm?.perField ?? modelEvals.gpt?.perField ?? [];
+  }, [effectiveView, modelEvals, rows]);
+
+  const gateSummary = useMemo(() => {
+    if (effectiveView === 'glm' && modelEvals.glm) {
+      return {
+        accuracy: modelEvals.glm.accuracy,
+        partialAccuracy: modelEvals.glm.partialAccuracy,
+        matched: modelEvals.glm.matched,
+        total: modelEvals.glm.total,
+      };
+    }
+    if (effectiveView === 'gpt' && modelEvals.gpt) {
+      return {
+        accuracy: modelEvals.gpt.accuracy,
+        partialAccuracy: modelEvals.gpt.partialAccuracy,
+        matched: modelEvals.gpt.matched,
+        total: modelEvals.gpt.total,
+      };
+    }
+    if (modelEvals.glm && modelEvals.gpt) {
+      return {
+        accuracy: Math.round((modelEvals.glm.accuracy + modelEvals.gpt.accuracy) / 2),
+        partialAccuracy: Math.round(
+          (modelEvals.glm.partialAccuracy + modelEvals.gpt.partialAccuracy) / 2
+        ),
+        matched: Math.round((modelEvals.glm.matched + modelEvals.gpt.matched) / 2),
+        total: modelEvals.glm.total,
+      };
+    }
+    const single = modelEvals.glm ?? modelEvals.gpt;
+    return single
+      ? {
+          accuracy: single.accuracy,
+          partialAccuracy: single.partialAccuracy,
+          matched: single.matched,
+          total: single.total,
+        }
+      : { accuracy: 0, partialAccuracy: 0, matched: 0, total: 0 };
+  }, [effectiveView, modelEvals]);
+
+  const hist = useMemo(
+    () => histogramBins(fieldEvalsForView.map((f) => f.f1), 5),
+    [fieldEvalsForView]
+  );
+
+  const sections = useMemo(
+    () =>
+      aggregateBySection(fieldEvalsForView).map((s) => ({
+        section: s.section,
+        value: s.meanF1,
+        count: s.count,
+      })),
+    [fieldEvalsForView]
+  );
+
+  const bands = useMemo(() => {
+    let green = 0;
+    let amber = 0;
+    let red = 0;
+    for (const f of fieldEvalsForView) {
+      const b = scoreBand(f.f1);
+      if (b === 'green') green += 1;
+      else if (b === 'amber') amber += 1;
+      else red += 1;
+    }
+    return { green, amber, red };
+  }, [fieldEvalsForView]);
+
+  const worst = useMemo(
+    () => sortByPriority(fieldEvalsForView).slice(0, 8),
+    [fieldEvalsForView]
+  );
+
+  const sortedRows = useMemo(() => {
+    return [...rows].sort((a, b) => {
+      const aEv =
+        effectiveView === 'avg'
+          ? a.evaluationsByModel?.glm ?? a.evaluationsByModel?.gpt
+          : a.evaluationsByModel?.[effectiveView];
+      const bEv =
+        effectiveView === 'avg'
+          ? b.evaluationsByModel?.glm ?? b.evaluationsByModel?.gpt
+          : b.evaluationsByModel?.[effectiveView];
+      const aMetric =
+        a.config.priority === 'precision'
+          ? (aEv?.precision ?? a.avg.precision)
+          : (aEv?.recall ?? a.avg.recall);
+      const bMetric =
+        b.config.priority === 'precision'
+          ? (bEv?.precision ?? b.avg.precision)
+          : (bEv?.recall ?? b.avg.recall);
+      if (!a.hasData && b.hasData) return 1;
+      if (a.hasData && !b.hasData) return -1;
+      if (aMetric !== bMetric) return aMetric - bMetric;
+      return a.key.localeCompare(b.key);
+    });
+  }, [rows, effectiveView]);
 
   if (!active) return null;
-
-  // Available views: average (if any model ran) + each model that produced results.
-  const availableViews: View[] = [];
-  const anyDone = glm.status === 'done' || gpt.status === 'done';
-  if (anyDone) availableViews.push('avg');
-  if (glm.status === 'done') availableViews.push('glm');
-  if (gpt.status === 'done') availableViews.push('gpt');
-
-  // Fall back to 'avg' if the selected view is no longer available (e.g. a
-  // model was reset). 'avg' is always valid as a placeholder even pre-run.
-  const effectiveView: View = availableViews.includes(view) ? view : 'avg';
-
-  const summary = aggregateRows(rows, effectiveView);
 
   const prfFor = (row: (typeof rows)[number]): PRF | undefined =>
     effectiveView === 'avg' ? (row.hasData ? row.avg : undefined) : row.byModel[effectiveView];
 
+  const evalFor = (row: (typeof rows)[number]): FieldEvaluation | undefined => {
+    if (effectiveView === 'avg') {
+      return row.evaluationsByModel?.glm ?? row.evaluationsByModel?.gpt;
+    }
+    return row.evaluationsByModel?.[effectiveView];
+  };
+
   return (
     <div className="flex flex-col gap-3">
-      <PageIntro title="Dashboard" subtitle="Per-field precision, recall and F1 against the golden dataset." />
+      <PageIntro
+        title="Evaluation detail"
+        subtitle="Same evaluation engine as the comparison columns — gate accuracy, partial credit, and precision/recall, plus distributions."
+      />
 
       <ModelSelector
         views={availableViews}
@@ -94,25 +254,93 @@ export function DashboardPage() {
         hasData={anyDone}
       />
 
-      <SummaryStrip summary={summary} view={effectiveView} />
+      <SummaryStrip
+        summary={summary}
+        gate={gateSummary}
+        view={effectiveView}
+        hasData={anyDone}
+      />
+
+      {anyDone && fieldEvalsForView.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <div className="rounded-xl border border-border bg-card/60 p-3">
+            <BandStack
+              title="F1 score bands"
+              green={bands.green}
+              amber={bands.amber}
+              red={bands.red}
+            />
+          </div>
+          <div className="rounded-xl border border-border bg-card/60 p-3">
+            <Histogram
+              title="F1 distribution"
+              bins={hist.map((b) => ({ label: b.label, count: b.count }))}
+              accent={meta.accent}
+            />
+          </div>
+          <div className="rounded-xl border border-border bg-card/60 p-3">
+            <SectionBars
+              title="Mean F1 by section"
+              rows={sections}
+              accent={meta.accent}
+            />
+          </div>
+        </div>
+      )}
+
+      {anyDone && worst.length > 0 && (
+        <div className="rounded-xl border border-border bg-card/60 p-3">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Worst fields (priority-aware)
+          </p>
+          <ul className="flex flex-col gap-1">
+            {worst.map((f) => {
+              const metric =
+                f.config.priority === 'precision' ? f.precision : f.recall;
+              return (
+                <li
+                  key={f.key}
+                  className="flex items-center gap-2 rounded-md bg-background/50 px-2 py-1.5"
+                >
+                  {f.match ? (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                  ) : (
+                    <X className="h-3.5 w-3.5 shrink-0 text-rose-400" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                    {f.label}
+                  </span>
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                    {f.config.priority === 'precision' ? 'P' : 'R'}{' '}
+                    {Math.round(metric * 100)}% · F1 {Math.round(f.f1 * 100)}%
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-border bg-card/60">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] border-collapse text-sm">
+          <table className="w-full min-w-[780px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-border bg-background/40 text-left">
                 <Th>Field</Th>
-                <Th>Match Strategy</Th>
-                <Th>Priority</Th>
+                <Th>Config</Th>
+                <Th className="text-center">Match</Th>
+                <Th className="text-center">Partial</Th>
                 <Th className="text-center">Precision</Th>
                 <Th className="text-center">Recall</Th>
                 <Th className="text-center">F1</Th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {sortedRows.map((row) => {
                 const prf = prfFor(row);
+                const ev = evalFor(row);
                 const has = prf !== undefined;
+                const primaryIsP = row.config.priority === 'precision';
                 return (
                   <tr
                     key={row.key}
@@ -129,15 +357,46 @@ export function DashboardPage() {
                       </div>
                     </td>
                     <td className="px-3 py-2.5">
-                      <StrategyBadge strategy={row.config.matchStrategy} />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <PriorityBadge priority={row.config.priority} />
+                      <div className="flex flex-wrap gap-1">
+                        <StrategyBadge strategy={row.config.matchStrategy} />
+                        <ListModeBadge mode={row.config.listMode} />
+                        <PriorityBadge priority={row.config.priority} />
+                      </div>
                     </td>
                     <td className="px-3 py-2.5 text-center">
+                      {has && ev ? (
+                        ev.match ? (
+                          <span className="inline-flex items-center gap-1 font-mono text-[11px] text-emerald-400">
+                            <Check className="h-3.5 w-3.5" /> ok
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 font-mono text-[11px] text-rose-400">
+                            <X className="h-3.5 w-3.5" /> miss
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <span className="font-mono text-xs text-foreground">
+                        {has && ev ? `${Math.round(ev.partial * 100)}%` : '—'}
+                      </span>
+                    </td>
+                    <td
+                      className={cn(
+                        'px-3 py-2.5 text-center',
+                        primaryIsP && 'bg-amber-500/5'
+                      )}
+                    >
                       <ScoreBadge value={prf?.precision ?? 0} hasData={has} />
                     </td>
-                    <td className="px-3 py-2.5 text-center">
+                    <td
+                      className={cn(
+                        'px-3 py-2.5 text-center',
+                        !primaryIsP && 'bg-sky-500/5'
+                      )}
+                    >
                       <ScoreBadge value={prf?.recall ?? 0} hasData={has} />
                     </td>
                     <td className="px-3 py-2.5 text-center">
@@ -170,7 +429,7 @@ function ModelSelector({
   if (!hasData) {
     return (
       <div className="rounded-lg border border-dashed border-border bg-background/30 px-3 py-2 text-[11px] text-muted-foreground">
-        Run an extraction to populate scores. The model selector and per-model breakdown appear once results are in.
+        Run an extraction to populate scores. Numbers here match the main comparison gauges.
       </div>
     );
   }
@@ -180,7 +439,7 @@ function ModelSelector({
         View
       </span>
       {views.map((id) => {
-        const meta = VIEW_META[id];
+        const m = VIEW_META[id];
         const isActive = id === view;
         return (
           <button
@@ -190,10 +449,10 @@ function ModelSelector({
             aria-pressed={isActive}
             className={cn(
               'rounded-full border px-3 py-1 text-[11px] font-semibold transition-colors',
-              isActive ? cn(meta.active, meta.ring) : 'border-border text-muted-foreground hover:text-foreground'
+              isActive ? cn(m.active, m.ring) : 'border-border text-muted-foreground hover:text-foreground'
             )}
           >
-            {meta.label}
+            {m.label}
           </button>
         );
       })}
@@ -203,27 +462,34 @@ function ModelSelector({
 
 function SummaryStrip({
   summary,
+  gate,
   view,
+  hasData,
 }: {
   summary: PRF & { count: number };
+  gate: { accuracy: number; partialAccuracy: number; matched: number; total: number };
   view: View;
+  hasData: boolean;
 }) {
-  const meta = VIEW_META[view];
-  const has = summary.count > 0;
+  const m = VIEW_META[view];
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-background/40 px-4 py-3">
       <div className="flex min-w-0 flex-col">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Overall · {meta.label}
+          Overall · {m.label}
         </span>
         <span className="font-mono text-[11px] text-muted-foreground">
-          {has ? `mean across ${summary.count} field${summary.count === 1 ? '' : 's'}` : 'no results yet'}
+          {hasData
+            ? `${gate.matched}/${gate.total} fields exact · mean of ${summary.count} fields`
+            : 'no results yet'}
         </span>
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-4">
-        <SummaryStat label="Precision" value={summary.precision} has={has} />
-        <SummaryStat label="Recall" value={summary.recall} has={has} />
-        <SummaryStat label="F1" value={summary.f1} has={has} />
+        <SummaryStat label="Exact" value={gate.accuracy / 100} has={hasData} />
+        <SummaryStat label="Partial" value={gate.partialAccuracy / 100} has={hasData} />
+        <SummaryStat label="Precision" value={summary.precision} has={hasData && summary.count > 0} />
+        <SummaryStat label="Recall" value={summary.recall} has={hasData && summary.count > 0} />
+        <SummaryStat label="F1" value={summary.f1} has={hasData && summary.count > 0} />
       </div>
     </div>
   );
@@ -274,7 +540,7 @@ function StrategyBadge({ strategy }: { strategy: 'exact' | 'partial' }) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
         isExact
           ? 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400'
           : 'border-cyan-500/30 bg-cyan-500/10 text-cyan-700 dark:text-cyan-400'
@@ -285,12 +551,29 @@ function StrategyBadge({ strategy }: { strategy: 'exact' | 'partial' }) {
   );
 }
 
+function ListModeBadge({ mode }: { mode: 'sequence' | 'set' }) {
+  const isSeq = mode === 'sequence';
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+        isSeq
+          ? 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300'
+          : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+      )}
+    >
+      <ListOrdered className="h-3 w-3" />
+      {isSeq ? 'Seq' : 'Set'}
+    </span>
+  );
+}
+
 function PriorityBadge({ priority }: { priority: 'precision' | 'recall' }) {
   const isRecall = priority === 'recall';
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold',
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
         isRecall
           ? 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400'
           : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400'

@@ -6,31 +6,28 @@ import {
   ChevronRight,
   Database,
   LayoutDashboard,
-  Settings2,
   X,
 } from 'lucide-react';
 import { useAppStore } from '@/store';
 import { cn } from '@/lib/utils';
 import { DashboardPage } from './DashboardPage';
 import { GoldenDatasetPage } from './GoldenDatasetPage';
-import { MetricConfigPage } from './MetricConfigPage';
 
 interface MetricsDashboardProps {
   open: boolean;
   onClose: () => void;
 }
 
-type PageId = 'dashboard' | 'golden' | 'config';
+type PageId = 'dashboard' | 'golden';
 
 const NAV: Array<{ id: PageId; label: string; icon: React.ReactNode; hint: string }> = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" />, hint: 'Per-field precision, recall, F1' },
-  { id: 'golden', label: 'Golden Dataset', icon: <Database className="h-4 w-4" />, hint: 'Schema & per-field scoring config' },
-  { id: 'config', label: 'Metric Configuration', icon: <Settings2 className="h-4 w-4" />, hint: 'Precision vs recall guidance' },
+  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" />, hint: 'Same engine as main UI — KPIs, charts, fields' },
+  { id: 'golden', label: 'Golden Dataset', icon: <Database className="h-4 w-4" />, hint: 'Ground truth & evaluation config' },
 ];
 
-/** Fullscreen Metrics Dashboard. Same overlay/scroll-lock/Escape pattern as
- *  the Dataset Viewer. Collapsible left sidebar routes between the Dashboard,
- *  Golden Dataset, and Metric Configuration pages. */
+/** Fullscreen Evaluation Dashboard. Same overlay/scroll-lock/Escape pattern as
+ *  the Dataset Viewer. Collapsible left sidebar routes between the Dashboard
+ *  and Golden Dataset pages. */
 export function MetricsDashboard({ open, onClose }: MetricsDashboardProps) {
   const active = useAppStore((s) => s.active);
   const [page, setPage] = useState<PageId>('dashboard');
@@ -85,7 +82,7 @@ export function MetricsDashboard({ open, onClose }: MetricsDashboardProps) {
               </span>
               <div className="min-w-0">
                 <h2 className="text-sm font-bold uppercase tracking-wider text-foreground">
-                  Metrics Dashboard
+                  Evaluation Dashboard
                 </h2>
                 <p className="truncate font-mono text-[11px] text-muted-foreground">
                   {active ? active.name : 'No dataset selected'}
@@ -114,10 +111,8 @@ export function MetricsDashboard({ open, onClose }: MetricsDashboardProps) {
                   {active ? (
                     page === 'dashboard' ? (
                       <DashboardPage />
-                    ) : page === 'golden' ? (
-                      <GoldenDatasetPage golden={active.golden} />
                     ) : (
-                      <MetricConfigPage />
+                      <GoldenDatasetPage golden={active.golden} />
                     )
                   ) : (
                     <EmptyState />

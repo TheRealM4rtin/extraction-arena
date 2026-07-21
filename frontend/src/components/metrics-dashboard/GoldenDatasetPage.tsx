@@ -9,9 +9,10 @@ import {
 } from '@/lib/dataset';
 import { useAppStore, useFieldMetricConfig } from '@/store';
 import {
+  type ListMode,
   type MatchStrategy,
   type OptimizationPriority,
-} from '@/lib/metrics';
+} from '@/lib/evaluation';
 import { cn } from '@/lib/utils';
 
 interface GoldenDatasetPageProps {
@@ -19,8 +20,8 @@ interface GoldenDatasetPageProps {
 }
 
 /** Interactive showcase of the golden schema: one card per field, with the
- *  per-field match-strategy + optimization-priority controls and an accordion
- *  that reveals the golden value. */
+ *  per-field evaluation config (strategy, list mode, priority) and an accordion
+ *  that reveals the golden value. Config applies to main UI and metrics. */
 export function GoldenDatasetPage({ golden }: GoldenDatasetPageProps) {
   const entries = Object.entries(golden.golden_extraction);
 
@@ -28,7 +29,7 @@ export function GoldenDatasetPage({ golden }: GoldenDatasetPageProps) {
     <div className="flex flex-col gap-3">
       <PageIntro
         title="Golden Dataset"
-        subtitle="The extraction ground truth. Configure how each field is scored, then review its expected value."
+        subtitle="Ground truth fields. Configure evaluation per field — same settings drive the comparison columns and this dashboard."
       />
       <ul className="flex flex-col gap-2">
         {entries.map(([key, field]) => (
@@ -50,10 +51,13 @@ function GoldenFieldRow({
   const config = useFieldMetricConfig(fieldKey);
   const setFieldMetricConfig = useAppStore((s) => s.setFieldMetricConfig);
 
+  const kind = valueKind(value);
   const setStrategy = (matchStrategy: MatchStrategy) =>
     setFieldMetricConfig(fieldKey, { matchStrategy });
   const setPriority = (priority: OptimizationPriority) =>
     setFieldMetricConfig(fieldKey, { priority });
+  const setListMode = (listMode: ListMode) =>
+    setFieldMetricConfig(fieldKey, { listMode });
 
   return (
     <li className="overflow-hidden rounded-xl border border-border bg-card/60">
@@ -76,6 +80,7 @@ function GoldenFieldRow({
             </span>
             <span className="truncate font-mono text-[11px] text-muted-foreground">
               {fieldKey}
+              <span className="ml-1.5 text-muted-foreground/70">· {kind}</span>
             </span>
           </span>
         </button>
@@ -89,6 +94,9 @@ function GoldenFieldRow({
             value={config.matchStrategy}
             onChange={setStrategy}
           />
+          {(kind === 'array' || kind === 'object') && (
+            <ListModePill value={config.listMode} onChange={setListMode} />
+          )}
           <PriorityToggle value={config.priority} onChange={setPriority} />
         </div>
       </div>
@@ -138,6 +146,33 @@ function MatchStrategyPill({
         id === 'partial'
           ? 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 shadow-[inset_0_0_0_1px_rgb(6_182_212_/_0.35)]'
           : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 shadow-[inset_0_0_0_1px_rgb(245_158_11_/_0.35)]'
+      }
+    />
+  );
+}
+
+/** Sequence (order matters) vs Set (bag match) for array/object fields. */
+function ListModePill({
+  value,
+  onChange,
+}: {
+  value: ListMode;
+  onChange: (v: ListMode) => void;
+}) {
+  const segments: Array<{ id: ListMode; label: string }> = [
+    { id: 'set', label: 'Set' },
+    { id: 'sequence', label: 'Seq' },
+  ];
+  return (
+    <SegmentControl
+      ariaLabel="List mode"
+      segments={segments}
+      value={value}
+      onChange={(v) => onChange(v as ListMode)}
+      activeClass={(id) =>
+        id === 'set'
+          ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 shadow-[inset_0_0_0_1px_rgb(16_185_129_/_0.35)]'
+          : 'bg-violet-500/15 text-violet-700 dark:text-violet-300 shadow-[inset_0_0_0_1px_rgb(139_92_246_/_0.35)]'
       }
     />
   );
