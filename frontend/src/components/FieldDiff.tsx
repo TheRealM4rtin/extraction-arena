@@ -96,7 +96,7 @@ function WordDiff({ golden, actual }: { golden: string; actual: string }) {
   const tokens = diffUnified(golden, actual);
   if (tokens.length === 0) return <span className="text-muted-foreground">—</span>;
   return (
-    <span>
+    <span className="break-words [overflow-wrap:anywhere]">
       {tokens.map((t, idx) => (
         <span
           key={idx}
@@ -154,17 +154,23 @@ function ArrayAnswer({ golden, actual }: { golden: string[]; actual: string[] })
   });
 
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="flex min-w-0 flex-col gap-0.5">
       {rows.map((row, idx) => {
         if (row.kind === 'pair') {
           return (
-            <div key={idx}>
+            <div key={idx} className="min-w-0">
               <WordDiff golden={row.golden} actual={row.actual} />
             </div>
           );
         }
         return (
-          <div key={idx} className={row.kind === 'missing' ? REMOVED_CLASS : ADDED_CLASS}>
+          <div
+            key={idx}
+            className={cn(
+              'min-w-0 break-words [overflow-wrap:anywhere]',
+              row.kind === 'missing' ? REMOVED_CLASS : ADDED_CLASS,
+            )}
+          >
             {row.text}
           </div>
         );
@@ -189,12 +195,12 @@ function ObjectAnswer({
   const keys = Array.from(new Set([...Object.keys(golden), ...Object.keys(actual)])).sort();
   if (keys.length === 0) return <AbsentNote label="(empty)" />;
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="flex min-w-0 flex-col gap-0.5">
       {keys.map((k) => {
         const inG = k in golden;
         const inA = k in actual;
         return (
-          <div key={k}>
+          <div key={k} className="min-w-0 break-words [overflow-wrap:anywhere]">
             <span className="text-muted-foreground">{k}:</span>{' '}
             {inG && inA ? (
               <WordDiff golden={golden[k]} actual={actual[k]} />
@@ -215,9 +221,9 @@ function AllAdded({ value }: { value: GoldenValue }) {
     const arr = value as string[];
     if (arr.length === 0) return <AbsentNote label="(empty)" />;
     return (
-      <div className="flex flex-col gap-0.5">
+      <div className="flex min-w-0 flex-col gap-0.5">
         {arr.map((item, idx) => (
-          <div key={idx} className={ADDED_CLASS}>
+          <div key={idx} className={cn(ADDED_CLASS, 'min-w-0 break-words [overflow-wrap:anywhere]')}>
             {item}
           </div>
         ))}
@@ -228,9 +234,9 @@ function AllAdded({ value }: { value: GoldenValue }) {
     const entries = Object.entries(value as Record<string, string>);
     if (entries.length === 0) return <AbsentNote label="(empty)" />;
     return (
-      <div className="flex flex-col gap-0.5">
+      <div className="flex min-w-0 flex-col gap-0.5">
         {entries.map(([k, v]) => (
-          <div key={k}>
+          <div key={k} className="min-w-0 break-words [overflow-wrap:anywhere]">
             <span className="text-muted-foreground">{k}:</span>{' '}
             <span className={ADDED_CLASS}>{v}</span>
           </div>
@@ -238,7 +244,9 @@ function AllAdded({ value }: { value: GoldenValue }) {
       </div>
     );
   }
-  return <span className={ADDED_CLASS}>{String(value)}</span>;
+  return (
+    <span className={cn(ADDED_CLASS, 'break-words [overflow-wrap:anywhere]')}>{String(value)}</span>
+  );
 }
 
 function AnswerBody({ golden, actual }: { golden: GoldenValue; actual: GoldenValue }) {
@@ -279,9 +287,15 @@ function DiffPane({
       ? 'border-border bg-background/60'
       : 'border-emerald-500/20 bg-emerald-500/5 dark:border-emerald-300/20 dark:bg-emerald-300/5';
   return (
-    <div className={cn('rounded-md border px-2 py-1.5', border)}>
+    <div className={cn('min-w-0 overflow-hidden rounded-md border px-2 py-1.5', border)}>
       <p className={cn('mb-1 text-[10px] font-semibold uppercase tracking-wider', color)}>{label}</p>
-      <div className="diff-text font-mono text-[11px] leading-relaxed text-foreground">{children}</div>
+      {/*
+        Wrap long values inside the column and hard-cap at 2 lines so cells never
+        force horizontal overflow. Font/size unchanged (still 11px mono relaxed).
+      */}
+      <div className="diff-text min-w-0 break-words [overflow-wrap:anywhere] line-clamp-2 font-mono text-[11px] leading-relaxed text-foreground">
+        {children}
+      </div>
     </div>
   );
 }
@@ -474,7 +488,7 @@ function FieldDiffRow({
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="overflow-hidden"
           >
-            <div className="grid grid-cols-1 gap-1.5 px-2 pb-2 pt-0.5">
+            <div className="grid min-w-0 grid-cols-1 gap-1.5 px-2 pb-2 pt-0.5">
               <DiffBody golden={goldenValue} actual={actual} />
             </div>
           </motion.div>
