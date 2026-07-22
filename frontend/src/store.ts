@@ -1,11 +1,7 @@
 import { create } from 'zustand';
-import {
-  type DatasetMeta,
-  type DatasetRecord,
-  type GoldenDataset,
-  buildExtractionPrompt,
-  expectedKinds,
-} from './lib/dataset';
+import { type DatasetMeta, type DatasetRecord, NOT_FOUND } from './lib/dataset';
+import { buildCanonicalPrompt } from './lib/canonical/prompt';
+import { ingestToCanonical } from './lib/canonical/ingest';
 import {
   deleteDataset,
   deepMerge,
@@ -15,7 +11,7 @@ import {
   updateDataset,
 } from './lib/db';
 import { type ModelResult, type PageImage } from './lib/api';
-import { NOT_FOUND } from './lib/dataset';
+import { type FieldEvalConfig, resolveFieldConfig } from './lib/metrics';
 
 export type ConvertStatus = 'idle' | 'converting' | 'ready' | 'error';
 
@@ -46,6 +42,13 @@ interface AppState {
   // the active dataset, the prompt falls back to the dataset's PDF filename.
   customContexts: Record<string, string>;
 
+  /**
+   * Per-dataset, per-field evaluation config overrides (match strategy, list
+   * mode, priority). Keyed by dataset id, then field key. Mirrored from
+   * `active.fieldEvalConfigs` and persisted with the dataset on edit.
+   */
+  metricConfigs: Record<string, Record<string, Partial<FieldEvalConfig>>>;
+
   // Model results (re-scored against the active dataset's golden)
   glm: ModelResult;
   gpt: ModelResult;
@@ -66,19 +69,19 @@ interface AppState {
   setColumnOrder: (order: ColumnKey[]) => void;
 
   /**
-   * Per-field refcount of how many model columns currently have that field's
-   * diff pane open. A Ground Truth cell stays highlighted while its refcount
-   * is > 0 and resets to neutral once the last column closes the pane.
+   * Shared open field across all model columns. When set, every pipeline
+   * column expands that field's row and the matching Ground Truth cell
+   * highlights. `null` means nothing is expanded.
    */
-  openFieldRefs: Record<string, number>;
+  openFieldKey: string | null;
   /**
-   * The field most recently opened (refcount transitioned 0 → 1) plus a nonce
-   * that bumps on every such transition. GoldenColumn watches the nonce to
-   * scroll the matching Ground Truth cell into view when a pane is opened.
+   * The field most recently opened plus a nonce that bumps on every open
+   * (including switching A → B). GoldenColumn / FieldDiff rows watch the
+   * nonce to scroll the matching cell into view once.
    */
   expandedField: { key: string | null; nonce: number };
-  /** Register that a field's diff pane was opened (true) or closed (false). */
-  setFieldOpen: (key: string, open: boolean) => void;
+  /** Set or clear the globally expanded field (`null` closes). */
+  setOpenFieldKey: (key: string | null) => void;
 
   // Catalog actions
   loadCatalog: () => Promise<void>;
@@ -87,7 +90,7 @@ interface AppState {
     pdfName: string;
     dpi: number;
     pages: PageImage[];
-    golden: GoldenDataset;
+    rawJson: unknown;
   }) => Promise<string>;
   removeDataset: (id: string) => Promise<void>;
   selectDataset: (id: string) => Promise<void>;
@@ -102,6 +105,12 @@ interface AppState {
 
   /** Set the prompt context for the active dataset (persisted in-memory only). */
   setDocumentContext: (value: string) => void;
+
+  /** Patch the evaluation config for one field of the active dataset (persisted). */
+  setFieldMetricConfig: (
+    fieldKey: string,
+    patch: Partial<FieldEvalConfig>
+  ) => void;
 
   // Results
   setGlm: (r: ModelResult) => void;
@@ -136,6 +145,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   customContexts: {},
 
+  metricConfigs: {},
+
   glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
   gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
 
@@ -144,24 +155,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   columnOrder: [...DEFAULT_COLUMN_ORDER],
   setColumnOrder: (columnOrder) => set({ columnOrder }),
 
-  openFieldRefs: {},
+  openFieldKey: null,
   expandedField: { key: null, nonce: 0 },
-  setFieldOpen: (key, open) =>
+  setOpenFieldKey: (key) =>
     set((s) => {
-      const prev = s.openFieldRefs[key] ?? 0;
-      const next = Math.max(0, prev + (open ? 1 : -1));
-      const openFieldRefs = { ...s.openFieldRefs };
-      if (next <= 0) delete openFieldRefs[key];
-      else openFieldRefs[key] = next;
-      // Only emit a scroll trigger on a fresh open (refcount 0 → 1) so the
-      // matching Ground Truth cell scrolls into view once when first revealed.
-      if (open && prev === 0) {
-        return {
-          openFieldRefs,
-          expandedField: { key, nonce: s.expandedField.nonce + 1 },
-        };
+      if (key === null) {
+        return { openFieldKey: null };
       }
-      return { openFieldRefs };
+      // Opening (or switching fields) bumps the nonce so GT + model rows
+      // can scroll the matching cell into view once.
+      if (key === s.openFieldKey) {
+        return { openFieldKey: key };
+      }
+      return {
+        openFieldKey: key,
+        expandedField: { key, nonce: s.expandedField.nonce + 1 },
+      };
     }),
 
   loadCatalog: async () => {
@@ -179,16 +188,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `ds-${Date.now()}`;
+    const ingested = ingestToCanonical({
+      rawJson: input.rawJson,
+      pages: input.pages,
+      pdfName: input.pdfName,
+      recordId: id,
+      sourceFormat: input.pdfName || 'arbitrary_json',
+    });
     const record: DatasetRecord = {
       id,
       name: input.name.trim() || 'Untitled dataset',
       pdfName: input.pdfName,
       dpi: input.dpi,
       pageCount: input.pages.length,
-      fieldCount: Object.keys(input.golden.golden_extraction).length,
+      fieldCount: Object.keys(ingested.golden.golden_extraction).length,
       createdAt: Date.now(),
       pages: input.pages,
-      golden: input.golden,
+      canonical: ingested.canonical,
+      golden: ingested.golden,
+      rawSource: ingested.rawSource,
     };
     await saveDataset(record);
     await get().loadCatalog();
@@ -199,10 +217,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   removeDataset: async (id) => {
     await deleteDataset(id);
     set((s) => {
-      const { [id]: _omit, ...rest } = s.customContexts;
+      const { [id]: _omitCtx, ...restCtx } = s.customContexts;
+      const { [id]: _omitCfg, ...restCfg } = s.metricConfigs;
       return {
         active: s.active?.id === id ? null : s.active,
-        customContexts: rest,
+        customContexts: restCtx,
+        metricConfigs: restCfg,
       };
     });
     await get().loadCatalog();
@@ -210,11 +230,18 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectDataset: async (id) => {
     const record = await loadDataset(id);
-    set({
+    set((s) => ({
       active: record ?? null,
       glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
       gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
-    });
+      // Hydrate in-memory overrides from the persisted dataset record.
+      metricConfigs: record
+        ? {
+            ...s.metricConfigs,
+            [id]: { ...(record.fieldEvalConfigs ?? {}) },
+          }
+        : s.metricConfigs,
+    }));
   },
 
   clearActive: () => set({ active: null }),
@@ -252,12 +279,35 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  setFieldMetricConfig: (fieldKey, patch) => {
+    const active = get().active;
+    if (!active) return;
+    const perDs = get().metricConfigs[active.id] ?? {};
+    const prev = perDs[fieldKey] ?? {};
+    const nextField = { ...prev, ...patch };
+    const nextMap = { ...perDs, [fieldKey]: nextField };
+    set((s) => ({
+      metricConfigs: {
+        ...s.metricConfigs,
+        [active.id]: nextMap,
+      },
+      active: s.active
+        ? { ...s.active, fieldEvalConfigs: nextMap }
+        : s.active,
+    }));
+    // Persist with the dataset (fire-and-forget; UI already updated).
+    void updateDataset(active.id, { fieldEvalConfigs: nextMap }).catch(() => {
+      /* keep in-memory state; next select will re-hydrate from disk if save failed */
+    });
+  },
+
   setGlm: (glm) => set({ glm }),
   setGpt: (gpt) => set({ gpt }),
   resetResults: () =>
     set({
       glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
       gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
+      openFieldKey: null,
     }),
 
   toggleModel: (key) =>
@@ -272,7 +322,7 @@ export function useActivePrompt(): string | null {
   const customContexts = useAppStore((s) => s.customContexts);
   if (!active) return null;
   const ctx = customContexts[active.id] ?? active.pdfName;
-  return buildExtractionPrompt(active.golden, ctx);
+  return buildCanonicalPrompt(active.canonical, ctx);
 }
 
 /**
@@ -289,7 +339,33 @@ export function useDocumentContext(): { value: string; isCustom: boolean } {
 
 export function useActiveKinds(): Record<string, import('./lib/dataset').ValueKind> {
   const active = useAppStore((s) => s.active);
-  return active ? expectedKinds(active.golden) : {};
+  if (!active) return {};
+  const out: Record<string, import('./lib/dataset').ValueKind> = {};
+  for (const [key, field] of Object.entries(active.golden.golden_extraction)) {
+    const v = field.value;
+    out[key] = Array.isArray(v) ? 'array' : v !== null && typeof v === 'object' ? 'object' : 'string';
+  }
+  return out;
+}
+
+/**
+ * Resolved evaluation config (smart defaults + user override) for one field
+ * of the active dataset. Re-renders when the config or active dataset changes.
+ */
+export function useFieldMetricConfig(fieldKey: string): FieldEvalConfig {
+  const override = useAppStore((s) => {
+    const activeId = s.active?.id;
+    return activeId ? s.metricConfigs[activeId]?.[fieldKey] : undefined;
+  });
+  return resolveFieldConfig(fieldKey, override);
+}
+
+/** All per-field overrides for the active dataset (for evaluateDataset). */
+export function useActiveEvalConfigMap(): Record<string, Partial<FieldEvalConfig>> {
+  const activeId = useAppStore((s) => s.active?.id);
+  return useAppStore((s) =>
+    activeId ? (s.metricConfigs[activeId] ?? {}) : {}
+  );
 }
 
 export { NOT_FOUND };

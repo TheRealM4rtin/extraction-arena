@@ -9,12 +9,21 @@ interface AccuracyScoreProps {
   /** When false (no result yet), the gauge half-circle collapses so the
    *  number sits near the top of the column; expanding it animates back down. */
   active?: boolean;
+  /** Small caption under the percentage (e.g. "Extraction"). */
+  label?: string;
   className?: string;
 }
 
 /** Semi-circular (speedometer) gauge with an animated fill + count-up number.
  *  The gauge reserve collapses when `active` is false to avoid wasted space. */
-export function AccuracyScore({ accuracy, accent, size = 150, active = true, className }: AccuracyScoreProps) {
+export function AccuracyScore({
+  accuracy,
+  accent,
+  size = 150,
+  active = true,
+  label,
+  className,
+}: AccuracyScoreProps) {
   const r = 60;
   const cx = 75;
   const cy = 72;
@@ -70,6 +79,11 @@ export function AccuracyScore({ accuracy, accent, size = 150, active = true, cla
             <AnimatedNumber value={accuracy} />
             <span className="text-base">%</span>
           </span>
+          {label && (
+            <span className="mt-0.5 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {label}
+            </span>
+          )}
         </div>
       </motion.div>
     </div>

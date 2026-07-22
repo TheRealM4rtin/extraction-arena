@@ -1,6 +1,6 @@
 # AGENTS.md
 
-An LLM vision-model evaluation dashboard that compares GLM-5V-Turbo (Z.AI) and GPT-5.4 mini (OpenAI) against a per-document golden dataset. Built around first-responder rescue sheets (the seed dataset is the 4-page Tesla Cybertruck sheet), but **the extraction schema is dataset-driven, not fixed** — each dataset brings its own PDF and golden JSON.
+An LLM vision-model evaluation dashboard that compares GLM-5V-Turbo (Z.AI) and GPT-5.4 mini (OpenAI) against a per-document golden dataset. Built around first-responder rescue sheets (the seed dataset is the 4-page Tesla Cybertruck sheet). The app is built around a **canonical, versioned rescue-sheet JSON contract** (`rescue-sheet-ev-v1.1` — rich ISO-17840-style domain body + app envelope; v1.0 still migrates); arbitrary source/supplier/model JSON enters the system only through envelope-stamping / an adapter / VLM normalize into that contract.
 
 ## Repository layout
 
@@ -20,11 +20,49 @@ Keys still live client-side (`VITE_` env, editable in Settings) and are passed t
 
 ## Datasets (the core unit of work)
 
-The app no longer has a drag-drop PDF + fixed ground truth. Instead, a **dataset** = `{ name, pdfName, dpi, pages[], golden }`, created via the "Create Dataset" dialog (name → PDF upload → golden JSON paste) and **persisted locally in IndexedDB** (`lib/db.ts`), so it survives app restarts. Multiple named datasets can coexist and be selected from the sidebar.
+## Canonical rescue-sheet contract (the core invariant)
 
-- The golden JSON's `golden_extraction` object defines the extraction schema for that dataset — its keys are the fields, and each field's `value` may be a **string, string[], or `{key: string}` object**. `difficulty` and `source` are optional display metadata.
-- The extraction prompt (`buildExtractionPrompt` in `lib/dataset.ts`) is generated from the field keys + their *types* only — **never the golden answers**, so the model is never leaked the truth.
+Everything the UI, persistence, scoring, metrics, and extraction prompt rely on is a **canonical, versioned record**: `rescue-sheet-ev-v1.1` (types in `frontend/src/lib/canonical/schema.ts`, JSON Schema Draft 2020-12 boundary in `schema.json`). **Arbitrary JSON is never the core input** for scoring — it is envelope-stamped (rich domain gold), adapted (free-form Tesla bag), or VLM-normalized. Pipeline:
+
+```
+pasted golden JSON / OEM JSON / LLM output
+              │
+              ▼
+   rich domain?  → stampRichEnvelope (identity_rich)
+   free-form?    → Tesla adapter (registry: ONE adapter)
+   VLM output?   → normalizeVlmToDraft (not the registry)
+              │
+              ▼
+   canonical rescue-sheet-ev-v1.1 draft
+              │
+              ▼
+   JSON Schema + domain-rule validation  (canonical/validate.ts)
+              │
+              ▼
+   project() → flat path→value map  (canonical/project.ts)
+              │
+              ▼
+   existing scoring / metrics / UI
+```
+
+- **Two stored representations per dataset** (`lib/canonical/ingest.ts` produces both):
+  - `canonical: RescueSheetV1` — the source of truth (rich nested domain + envelope).
+  - `rawSource: RawSourceRecord` — the unmodified pasted JSON, kept for audit/reprocessing (never read directly by the app).
+  - `golden: GoldenDataset` — a **derived projection** of `canonical` (via `goldenProjection()`), kept so the original scoring/metrics/UI modules run unchanged. It is read-only; edit `canonical` instead.
+- **Adapters** (`canonical/adapters/`): one per free-form source shape. The registry holds a SINGLE adapter — `TeslaRescueSheetAdapter` — which maps `{ golden_extraction: {...} }` to v1.1, preserving unrecognized keys under `legacy_fields`. **Rich ISO-style gold** (nested `disable_direct_hazards`, `warnings`, HV under `vehicle.propulsion`) is accepted via **envelope stamp** (`stampRichEnvelope`) — not the Tesla key table. **Vision-model output** uses `normalizeVlmToDraft()` (`canonical/vlm.ts`).
+- **Energy enum:** models and scoring prefer `battery_electric`; ingest normalizes free-form `"electricity"` → `battery_electric`.
+- **Validation never blocks** (`canonical/validate.ts`): structural (ajv 2020-12) + domain rules (step sequencing, positive durations/voltages, dangling evidence/source-page refs, missing-evidence warnings) + a separate **publish gate**. Problems are `Issue[]`, not thrown.
+- **No coordinates.** Evidence is page-level; locations use `location_descriptor` (or legacy `location.value`), not bounding boxes.
+- **Lifecycle is metadata + rules only** (no review-queue UI): `raw | draft | validated | reviewed | published | rejected | legacy` (`canonical/lifecycle.ts`).
+
+## Datasets (the core unit of work)
+
+A **dataset** = `{ name, pdfName, dpi, pages[], canonical, golden, rawSource }`, created via the "Create Dataset" dialog (name → PDF upload → golden JSON paste) and **persisted locally in IndexedDB** (`lib/db.ts`, DB v2), so it survives app restarts. Multiple named datasets can coexist and be selected from the sidebar.
+
+- The pasted JSON is the **raw source**. Rich domain gold is envelope-stamped; free-form bags use the Tesla adapter. Validation runs; the **projection** is what gets scored in Ground Truth / metrics.
+- The extraction prompt (`buildCanonicalPrompt` in `canonical/prompt.ts`) **always** sends the **full empty v1.1 nested skeleton** (placeholders only) — **never golden answers**, and **not** a gold-gated subset of fields. Scoring still only compares paths present on this dataset's projection.
 - Page images are stored inline (base64 data URLs) in IndexedDB; a dataset can be re-run offline once created.
+- **Pre-v1 datasets are migrated lazily** on load (`migrateLegacyDataset`): their free-form `golden_extraction` is re-run through the Tesla adapter to produce a `canonical` record, and the original projection is preserved.
 
 ## Hard constraints
 
@@ -32,9 +70,9 @@ The app no longer has a drag-drop PDF + fixed ground truth. Instead, a **dataset
 - **`NodeCanvasFactory.destroy` must stay a no-op.** `@napi-rs/canvas` throws `Failed to unwrap exclusive reference of CanvasElement` if you set `canvas.width = 0` (the default `BaseCanvasFactory.destroy`) while its 2D context still holds a shared borrow. This only triggers on image-heavy PDFs (cached intermediate canvases), so it passes on simple test PDFs and bites in production. GC reclaims the canvases once pdf.js drops them.
 - **`pdfjs-dist` pulls in `canvas` (node-canvas) as an optional dependency.** It coexists with `@napi-rs/canvas`; the factory passed to `getDocument({ canvasFactory })` is what actually renders, so keep routing it explicitly.
 - **PDF→PNG at exactly 300 DPI.** Not 72, not 4K.
-- **Accuracy scoring is real and dataset-driven:** per-field exact match vs the golden value (normalized strings; order-independent set match for arrays; key/value match for objects), plus a partial-credit metric for arrays/objects. Never mock or fake scores.
+- **Accuracy scoring is real and canonical-driven:** one evaluation engine (`lib/evaluation/`) scores the flat projection (`canonical/project.ts`). Per-field: exact gate match, partial credit, and precision/recall/F1 from the **same** alignments. Array geometry is smart by path (`ordered_steps` → sequence; `warnings`/inventories → set) with per-field override. The main comparison UI and Metrics dashboard consume that single result. Never mock or fake scores.
 - **No placeholder API calls.** Both models are called for real with live keys.
-- **Validate/coerce every model JSON output to the golden field types** before display (`coerceExtracted` in `lib/dataset.ts`).
+- **Normalize + validate every model JSON output to the canonical contract** before display/scoring: `normalizeVlmToDraft` (`canonical/vlm.ts`) → `validate` → `project`. Issues are surfaced, never thrown.
 
 ## Sentinels
 

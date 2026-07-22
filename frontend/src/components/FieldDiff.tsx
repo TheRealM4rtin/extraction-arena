@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, Minus, ChevronRight } from 'lucide-react';
 import { type GoldenDataset, type GoldenValue, valueKind } from '@/lib/dataset';
@@ -111,48 +111,12 @@ function WordDiff({ golden, actual }: { golden: string; actual: string }) {
 }
 
 /**
- * Ground-truth pane content: the golden value rendered verbatim, no diff, no
- * marks. Arrays/objects are laid out as plain rows so the structure is
- * scannable. Font + size come from the surrounding `DiffPane`.
- */
-function PlainValue({ value }: { value: GoldenValue }) {
-  const kind = valueKind(value);
-  if (kind === 'array') {
-    const arr = value as string[];
-    if (arr.length === 0) return <AbsentNote label="(empty)" />;
-    return (
-      <div className="flex flex-col gap-0.5">
-        {arr.map((item, idx) => (
-          <div key={idx} className="text-foreground">
-            {item}
-          </div>
-        ))}
-      </div>
-    );
-  }
-  if (kind === 'object') {
-    const entries = Object.entries(value as Record<string, string>);
-    if (entries.length === 0) return <AbsentNote label="(empty)" />;
-    return (
-      <div className="flex flex-col gap-0.5">
-        {entries.map(([k, v]) => (
-          <div key={k}>
-            <span className="text-muted-foreground">{k}:</span>{' '}
-            <span className="text-foreground">{v}</span>
-          </div>
-        ))}
-      </div>
-    );
-  }
-  return <span className="text-foreground">{String(value)}</span>;
-}
-
-/**
  * Array diff with best-match pairing + per-pair word-level diff. For each
  * golden item, pick the unused actual item with the highest word-overlap; if
  * overlap ≥ 0.5, render a word-diff of the pair, otherwise mark the golden
  * item as missing (red strike). Unmatched actual items are appended in
- * purple (added). Mirrors the scorer's order-independent set semantics.
+ * purple (added). Visual only — gate scores come from lib/evaluation (sequence
+ * or set list mode per field). This pane uses greedy item pairing for display.
  */
 function ArrayAnswer({ golden, actual }: { golden: string[]; actual: string[] }) {
   if (golden.length === 0 && actual.length === 0) return <AbsentNote label="(empty)" />;
@@ -294,10 +258,10 @@ function AnswerBody({ golden, actual }: { golden: GoldenValue; actual: GoldenVal
 }
 
 /**
- * Two-pane layout. Ground truth = plain golden (no marks). Actual = unified
- * inline diff walked through the LCS alignment (green/red-strike/purple).
- * Font, text size, and per-tone border/background are preserved from the
- * original git-diff rendering.
+ * Single-pane layout for model cells. Ground truth is not repeated here —
+ * it already lives in the GT column. Actual = unified inline diff walked
+ * through the LCS alignment (green / red-strike / purple). Golden values are
+ * still used for alignment only.
  */
 function DiffPane({
   label,
@@ -305,17 +269,15 @@ function DiffPane({
   children,
 }: {
   label: string;
-  tone: 'golden' | 'actual' | 'match';
+  tone: 'actual' | 'match';
   children: React.ReactNode;
 }) {
   const color =
-    tone === 'golden' ? 'text-gt' : tone === 'actual' ? 'text-muted-foreground' : 'text-emerald-500 dark:text-emerald-300';
+    tone === 'actual' ? 'text-muted-foreground' : 'text-emerald-500 dark:text-emerald-300';
   const border =
-    tone === 'golden'
-      ? 'border-gt/20 bg-gt/5'
-      : tone === 'actual'
-        ? 'border-border bg-background/60'
-        : 'border-emerald-500/20 bg-emerald-500/5 dark:border-emerald-300/20 dark:bg-emerald-300/5';
+    tone === 'actual'
+      ? 'border-border bg-background/60'
+      : 'border-emerald-500/20 bg-emerald-500/5 dark:border-emerald-300/20 dark:bg-emerald-300/5';
   return (
     <div className={cn('rounded-md border px-2 py-1.5', border)}>
       <p className={cn('mb-1 text-[10px] font-semibold uppercase tracking-wider', color)}>{label}</p>
@@ -335,20 +297,15 @@ function DiffBody({ golden, actual }: { golden: GoldenValue; actual: GoldenValue
     );
   }
   return (
-    <>
-      <DiffPane label="Ground truth" tone="golden">
-        {gAbsent ? <AbsentNote label="(not found)" /> : <PlainValue value={golden} />}
-      </DiffPane>
-      <DiffPane label="Actual" tone="actual">
-        {aAbsent ? (
-          <AbsentNote label="(not found)" />
-        ) : gAbsent ? (
-          <AllAdded value={actual} />
-        ) : (
-          <AnswerBody golden={golden} actual={actual} />
-        )}
-      </DiffPane>
-    </>
+    <DiffPane label="Actual" tone="actual">
+      {aAbsent ? (
+        <AbsentNote label="(not found)" />
+      ) : gAbsent ? (
+        <AllAdded value={actual} />
+      ) : (
+        <AnswerBody golden={golden} actual={actual} />
+      )}
+    </DiffPane>
   );
 }
 
@@ -359,89 +316,170 @@ interface FieldDiffListProps {
   accent: string;
 }
 
-/** Expandable per-field rows. Collapsed = status + label; expanded = ground-truth/actual panes. */
+/**
+ * Expandable per-field rows driven by the shared store open key so every
+ * model column expands/collapses the same field together. Collapsed =
+ * status + label; expanded = actual/diff pane only (GT is the GT column).
+ */
 export function FieldDiffList({ fields, data, golden, accent }: FieldDiffListProps) {
-  const [open, setOpen] = useState<string | null>(null);
-  const setFieldOpen = useAppStore((s) => s.setFieldOpen);
+  const openFieldKey = useAppStore((s) => s.openFieldKey);
+  const setOpenFieldKey = useAppStore((s) => s.setOpenFieldKey);
 
   return (
     <ul className="flex flex-col gap-1">
       {fields.map((f) => {
-        const isOpen = open === f.key;
+        const isOpen = openFieldKey === f.key;
         const isPartial = !f.match && f.partial > 0;
         const goldenValue = golden.golden_extraction[f.key]?.value;
         const actual = data[f.key];
+        const judge = f.evaluation?.judge;
         return (
-          <li key={f.key} className="overflow-hidden rounded-md bg-background/60">
-            <button
-              type="button"
-              onClick={() => {
-                if (isOpen) {
-                  setOpen(null);
-                  setFieldOpen(f.key, false);
-                } else {
-                  // Close the previously-open field (if any) so its Ground
-                  // Truth refcount decrements before we open the new one.
-                  if (open) setFieldOpen(open, false);
-                  setOpen(f.key);
-                  setFieldOpen(f.key, true);
-                }
-              }}
-              className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors hover:bg-background/80"
-            >
-              <ChevronRight
-                className={cn(
-                  'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
-                  isOpen && 'rotate-90',
-                )}
-              />
-              <span className="shrink-0">
-                {f.match ? (
-                  <Check className="h-4 w-4 text-emerald-400" />
-                ) : isPartial ? (
-                  <Minus className="h-4 w-4 text-amber-400" />
-                ) : (
-                  <X className="h-4 w-4 text-rose-400" />
-                )}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                {f.label}
-              </span>
-              {!f.match && (
-                <span
-                  className="shrink-0 font-mono text-[10px]"
-                  style={{ color: isPartial ? '#fbbf24' : '#fb7185' }}
-                >
-                  {isPartial ? `${Math.round(f.partial * 100)}%` : 'miss'}
-                </span>
-              )}
-              {f.match && (
-                <span className="shrink-0 font-mono text-[10px] text-emerald-400">ok</span>
-              )}
-              <span
-                className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ background: accent, opacity: 0.5 }}
-              />
-            </button>
-            <AnimatePresence initial={false}>
-              {isOpen && (
-                <motion.div
-                  key="content"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2, ease: 'easeOut' }}
-                  className="overflow-hidden"
-                >
-                  <div className="grid grid-cols-1 gap-1.5 px-2 pb-2 pt-0.5">
-                    <DiffBody golden={goldenValue} actual={actual} />
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </li>
+          <FieldDiffRow
+            key={f.key}
+            fieldKey={f.key}
+            label={f.label}
+            match={f.match}
+            partial={f.partial}
+            isPartial={isPartial}
+            isOpen={isOpen}
+            accent={accent}
+            goldenValue={goldenValue}
+            actual={actual}
+            judgeVerdict={judge?.verdict}
+            judgeRationale={judge?.rationale}
+            judgeUplifted={judge?.upliftApplied}
+            detPartial={judge?.det.partial}
+            onToggle={() => setOpenFieldKey(isOpen ? null : f.key)}
+          />
         );
       })}
     </ul>
+  );
+}
+
+function FieldDiffRow({
+  fieldKey,
+  label,
+  match,
+  partial,
+  isPartial,
+  isOpen,
+  accent,
+  goldenValue,
+  actual,
+  judgeVerdict,
+  judgeRationale,
+  judgeUplifted,
+  detPartial,
+  onToggle,
+}: {
+  fieldKey: string;
+  label: string;
+  match: boolean;
+  partial: number;
+  isPartial: boolean;
+  isOpen: boolean;
+  accent: string;
+  goldenValue: GoldenValue;
+  actual: GoldenValue;
+  judgeVerdict?: string;
+  judgeRationale?: string;
+  judgeUplifted?: boolean;
+  detPartial?: number;
+  onToggle: () => void;
+}) {
+  const expandedKey = useAppStore((s) => s.expandedField.key);
+  const expandedNonce = useAppStore((s) => s.expandedField.nonce);
+  const rowRef = useRef<HTMLLIElement>(null);
+
+  // When this field is freshly opened globally, bring the row into view in
+  // this column (columns scroll independently of GT).
+  useEffect(() => {
+    if (!isOpen || expandedKey !== fieldKey || !rowRef.current) return;
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    rowRef.current.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+  }, [expandedNonce, expandedKey, fieldKey, isOpen]);
+
+  return (
+    <li ref={rowRef} className="overflow-hidden rounded-md bg-background/60">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 px-2 py-1.5 text-left transition-colors hover:bg-background/80"
+      >
+        <ChevronRight
+          className={cn(
+            'h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform',
+            isOpen && 'rotate-90',
+          )}
+        />
+        <span className="shrink-0">
+          {match ? (
+            <Check className="h-4 w-4 text-emerald-400" />
+          ) : isPartial ? (
+            <Minus className="h-4 w-4 text-amber-400" />
+          ) : (
+            <X className="h-4 w-4 text-rose-400" />
+          )}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+        {judgeVerdict && (
+          <span
+            className={cn(
+              'shrink-0 rounded px-1 font-mono text-[9px] uppercase tracking-wide',
+              judgeUplifted
+                ? 'bg-cyan-500/15 text-cyan-300'
+                : judgeVerdict === 'different'
+                  ? 'bg-rose-500/15 text-rose-300'
+                  : 'bg-muted text-muted-foreground'
+            )}
+            title={judgeRationale ?? judgeVerdict}
+          >
+            {judgeVerdict}
+            {judgeUplifted ? ' ↑' : ''}
+          </span>
+        )}
+        {!match && (
+          <span
+            className="shrink-0 font-mono text-[10px]"
+            style={{ color: isPartial ? '#fbbf24' : '#fb7185' }}
+          >
+            {isPartial ? `${Math.round(partial * 100)}%` : 'miss'}
+            {judgeUplifted && detPartial != null && detPartial < partial
+              ? ` (was ${Math.round(detPartial * 100)}%)`
+              : ''}
+          </span>
+        )}
+        {match && (
+          <span className="shrink-0 font-mono text-[10px] text-emerald-400">
+            {judgeUplifted ? 'ok↑' : 'ok'}
+          </span>
+        )}
+        <span
+          className="ml-1 h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ background: accent, opacity: 0.5 }}
+        />
+      </button>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            key="content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="overflow-hidden"
+          >
+            <div className="grid grid-cols-1 gap-1.5 px-2 pb-2 pt-0.5">
+              <DiffBody golden={goldenValue} actual={actual} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </li>
   );
 }

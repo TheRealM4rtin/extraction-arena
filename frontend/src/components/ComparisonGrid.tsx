@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { motion, Reorder, useDragControls } from 'framer-motion';
 import { Star, GripVertical } from 'lucide-react';
 import { GoldenColumn } from './GoldenColumn';
 import { ModelColumn } from './ModelColumn';
 import { scoreDataset } from '@/lib/scoring';
-import { useAppStore, type ColumnKey, type ModelKey } from '@/store';
+import { useActiveEvalConfigMap, useAppStore, type ColumnKey, type ModelKey } from '@/store';
 import { cn } from '@/lib/utils';
 
 interface ColumnDef {
@@ -26,6 +26,7 @@ export function ComparisonGrid() {
   const glm = useAppStore((s) => s.glm);
   const gpt = useAppStore((s) => s.gpt);
   const golden = useAppStore((s) => s.active?.golden ?? null);
+  const configMap = useActiveEvalConfigMap();
   const enabledModels = useAppStore((s) => s.enabledModels);
   const toggleModel = useAppStore((s) => s.toggleModel);
   const columnOrder = useAppStore((s) => s.columnOrder);
@@ -35,12 +36,13 @@ export function ComparisonGrid() {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragging = useRef<number | null>(null);
 
-  const scoreOf = (data: Record<string, unknown>) =>
-    golden ? scoreDataset(data as Parameters<typeof scoreDataset>[0], golden) : null;
-  const scores = {
-    glm: scoreOf(glm.data)?.accuracy ?? 0,
-    gpt: scoreOf(gpt.data)?.accuracy ?? 0,
-  };
+  const scores = useMemo(() => {
+    if (!golden) return { glm: 0, gpt: 0 };
+    return {
+      glm: scoreDataset(glm.data, golden, configMap, glm.judgeResults).extractionScore,
+      gpt: scoreDataset(gpt.data, golden, configMap, gpt.judgeResults).extractionScore,
+    };
+  }, [golden, glm.data, glm.judgeResults, gpt.data, gpt.judgeResults, configMap]);
 
   // Only enabled + done models participate in the BEST badge.
   const doneModels: Array<'glm' | 'gpt'> = [];

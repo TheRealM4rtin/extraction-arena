@@ -11,9 +11,9 @@ import { cn } from '@/lib/utils';
  * time (uploaded JSON), not hand-edited here — this displays the reference
  * fields each model is scored against, with their difficulty + source metadata.
  *
- * Each cell subscribes to the global open-field refcount: while any model
- * column has a field's diff pane open, the matching cell here lifts forward
- * with a glass/glow highlight, and scrolls into view the moment it is opened.
+ * Each cell subscribes to the shared open field key: while a model column has
+ * that field's pane open, the matching cell here lifts forward with a
+ * glass/glow highlight, and scrolls into view the moment it is opened.
  */
 export function GoldenColumn() {
   const golden: GoldenDataset | null = useAppStore((s) => s.active?.golden ?? null);
@@ -41,16 +41,13 @@ export function GoldenColumn() {
 }
 
 /**
- * One golden field card. While any model column has this field's pane open
- * (`openFieldRefs[fieldKey] > 0`) the card lifts forward: an emerald border,
- * a faint glass tint, a soft accent glow, and a slight scale-up so it reads
- * as "in front" of its siblings. The highlight persists until the last column
- * closes the pane.
+ * One golden field card. While the shared open field matches this key the
+ * card lifts forward: an emerald border, a faint glass tint, a soft accent
+ * glow, and a slight scale-up so it reads as "in front" of its siblings.
  *
- * The `expandedField` nonce fires once per fresh open (refcount 0 → 1); the
- * matching cell reacts by scrolling itself into view. `prefers-reduced-motion`
- * is honoured (instant scroll, no spring). The scale and shadow are static
- * states (not looping motion), so they remain for reduced-motion users.
+ * The `expandedField` nonce fires once per open (including field switches);
+ * the matching cell scrolls into view. `prefers-reduced-motion` is honoured
+ * (instant scroll, no spring). Scale and shadow are static states.
  */
 function GoldenCell({
   fieldKey,
@@ -61,7 +58,7 @@ function GoldenCell({
   field: { value: GoldenValue; difficulty?: string; source?: string };
   index: number;
 }) {
-  const isHighlighted = useAppStore((s) => (s.openFieldRefs[fieldKey] ?? 0) > 0);
+  const isHighlighted = useAppStore((s) => s.openFieldKey === fieldKey);
   const expandedKey = useAppStore((s) => s.expandedField.key);
   const expandedNonce = useAppStore((s) => s.expandedField.nonce);
   const cellRef = useRef<HTMLDivElement>(null);

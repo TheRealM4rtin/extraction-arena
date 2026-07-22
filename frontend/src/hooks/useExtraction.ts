@@ -8,8 +8,11 @@ import {
   type PageImage,
   type VisionConfig,
 } from '@/lib/api';
-import { buildExtractionPrompt, expectedKinds, type GoldenValue } from '@/lib/dataset';
+import { buildCanonicalPrompt } from '@/lib/canonical/prompt';
+import type { SourceContext } from '@/lib/canonical/adapters/types';
 import { useAppStore } from '@/store';
+import type { GoldenValue } from '@/lib/dataset';
+import { evaluateDataset, runSemanticJudgeAndUplift } from '@/lib/evaluation';
 
 export interface RunResult {
   glm: ModelResult;
@@ -48,8 +51,16 @@ export function useExtraction() {
       if (pages.length === 0) throw new Error('This dataset has no pages.');
 
       const documentContext = customContexts[active.id] ?? active.pdfName;
-      const prompt = buildExtractionPrompt(active.golden, documentContext);
-      const kinds = expectedKinds(active.golden);
+      const prompt = buildCanonicalPrompt(active.canonical, documentContext);
+      const ctx: SourceContext = {
+        recordId: active.id,
+        receivedAt: new Date().toISOString(),
+        sourcePages: pages.map((p) => ({ page_id: `file:${p.page}`, page_number: p.page })),
+        sourceFormat: active.pdfName,
+      };
+
+      // Metric config at run start (judge uses the same map as the comparison UI).
+      const configMap = useAppStore.getState().metricConfigs[active.id] ?? {};
 
       const allConfigs: Array<{ key: 'glm' | 'gpt'; cfg: VisionConfig }> = [
         {
@@ -99,11 +110,46 @@ export function useExtraction() {
 
       const tasks = configs.map(async ({ key, cfg }) => {
         try {
-          const value: ModelResult = {
-            ...(await callVisionModel(cfg, pages, prompt, kinds, signal)),
+          const extracted = await callVisionModel(cfg, pages, prompt, ctx, signal);
+          const det = evaluateDataset(extracted.data, active.golden, configMap);
+
+          // Show deterministic scores immediately, then semantic-judge weak fields.
+          let value: ModelResult = {
+            ...extracted,
             status: 'done',
+            evaluation: det,
+            judgeStatus: 'judging',
           };
           commit(key, value);
+
+          try {
+            const judged = await runSemanticJudgeAndUplift(
+              det,
+              active.golden,
+              extracted.data,
+              { apiKey: openaiKey, signal }
+            );
+            value = {
+              ...value,
+              evaluation: judged.evaluation,
+              judgeResults: judged.results,
+              judgeStatus: judged.error ? 'error' : 'done',
+              judgeError: judged.error,
+            };
+            commit(key, value);
+          } catch (judgeReason) {
+            if (isAbortError(judgeReason) || signal?.aborted) {
+              commit(key, idleResult(cfg.modelId, cfg.label));
+              return;
+            }
+            // Keep deterministic evaluation if judge fails.
+            commit(key, {
+              ...value,
+              judgeStatus: 'error',
+              judgeError:
+                judgeReason instanceof Error ? judgeReason.message : String(judgeReason),
+            });
+          }
         } catch (reason) {
           // A cancel should never read as an error: revert the column to idle so
           // the spinner stops without showing a bogus failure message. Models

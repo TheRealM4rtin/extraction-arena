@@ -1,0 +1,548 @@
+{
+  "schema_version": "rescue-sheet-ev-v1.0",
+  "standard_reference": {
+    "standard_id": "ISO 17840-1:2022",
+    "scope": "passenger_car_or_light_commercial_vehicle_rescue_sheet",
+    "conformance_status": "mapping_candidate_not_certified"
+  },
+  "document": {
+    "document_type": "rescue_sheet",
+    "document_id": "TESLA-2023CA-001",
+    "document_version": "02",
+    "sheet_page_count": 4,
+    "source_pages": [
+      {
+        "sheet_page_number": 1,
+        "attachment_id": "file:2",
+        "attachment_filename": "3.jpg",
+        "printed_page_number": "01/04",
+        "content_summary": "Component locations, safety systems, energy sources, high-voltage cables, high-strength zones"
+      },
+      {
+        "sheet_page_number": 2,
+        "attachment_id": "file:4",
+        "attachment_filename": "4.jpg",
+        "printed_page_number": "02/04",
+        "content_summary": "Identification, immobilization, stabilization/lifting, disabling direct hazards"
+      },
+      {
+        "sheet_page_number": 3,
+        "attachment_id": "file:1",
+        "attachment_filename": "2.jpg",
+        "printed_page_number": "03/04",
+        "content_summary": "Occupant access, glazing, high-strength zones, stored energy and fluids"
+      },
+      {
+        "sheet_page_number": 4,
+        "attachment_id": "file:3",
+        "attachment_filename": "1.jpg",
+        "printed_page_number": "04/04",
+        "content_summary": "Fire, submersion, towing, transportation, storage"
+      }
+    ]
+  },
+  "vehicle": {
+    "manufacturer": "Tesla",
+    "model": "Cybertruck",
+    "model_year_start": 2023,
+    "model_year_end": null,
+    "vehicle_class": "not_explicitly_stated_in_source",
+    "body_style": "truck",
+    "door_count": 4,
+    "seating_capacity": 5,
+    "propulsion": {
+      "primary_energy_source": "electricity",
+      "high_voltage_systems": [
+        {
+          "nominal_voltage_v": 800,
+          "chemistry": "lithium_ion",
+          "component_type": "traction_battery",
+          "source_text": "800V Li-Ion"
+        }
+      ],
+      "low_voltage_systems": [
+        {
+          "nominal_voltage_v": 48,
+          "chemistry": "lithium_ion",
+          "component_type": "low_voltage_battery",
+          "source_text": "48V Li-Ion"
+        }
+      ]
+    }
+  },
+  "responder_information": {
+    "identification_recognition": {
+      "vehicle_recognition": {
+        "exterior_model_badge_note": "The model name does not appear on the exterior of the vehicle.",
+        "tri_motor_identifier_note": "A Cerberus head emblem on the right rear of Cybertruck indicates a tri-motor performance vehicle."
+      },
+      "silent_vehicle_warning": {
+        "hazard_type": "unexpected_vehicle_movement",
+        "source_text": "LACK OF ENGINE NOISE DOES NOT MEAN VEHICLE IS OFF: SILENT MOVEMENT OR INSTANT RESTART CAPABILITY EXISTS UNTIL VEHICLE IS FULLY SHUT DOWN. WEAR APPROPRIATE PPE."
+      }
+    },
+    "immobilization": {
+      "ordered_steps": [
+        {
+          "step_number": 1,
+          "action": "chock_wheels",
+          "source_text": "1. CHOCK WHEELS"
+        },
+        {
+          "step_number": 2,
+          "action": "place_vehicle_in_park",
+          "source_text": "2. PUT VEHICLE INTO PARK POSITION"
+        }
+      ]
+    },
+    "stabilization_lifting": {
+      "lift_areas": [
+        {
+          "color_code": "green",
+          "meaning": "Appropriate lift areas"
+        }
+      ],
+      "stabilization_points": [
+        {
+          "color_code": "yellow",
+          "meaning": "Safe stabilization points for Cybertruck resting on its side"
+        }
+      ],
+      "no_contact_zones": [
+        {
+          "color_code": "orange",
+          "component_class": "high_voltage_battery",
+          "source_text": "Do not push on HV Battery."
+        }
+      ]
+    },
+    "disable_direct_hazards": {
+      "ordered_steps": [
+        {
+          "step_number": 1,
+          "action": "open_hood",
+          "source_text": "Open the hood."
+        },
+        {
+          "step_number": 2,
+          "action": "double_cut_first_responder_loop",
+          "source_text": "Double cut the first responder loop."
+        },
+        {
+          "step_number": 3,
+          "action": "double_cut_negative_cable_to_48v_battery",
+          "condition": "only_if_necessary",
+          "source_text": "Double cut negative cable to the 48V battery only if necessary."
+        }
+      ],
+      "first_responder_loop": {
+        "action": "double_cut",
+        "source_text": "Always double cut the first responder loop."
+      },
+      "low_voltage_isolation": {
+        "battery_voltage_v": 48,
+        "action": "double_cut_negative_cable",
+        "condition": "only_if_necessary"
+      },
+      "high_voltage_isolation": {
+        "warning": "Not every high voltage component is labeled.",
+        "prohibited_action": "do_not_attempt_to_open_high_voltage_battery",
+        "ppe_required": true,
+        "source_text": "Not every high voltage component is labeled. Always wear appropriate PPE. Always double cut the first responder loop. Do not attempt to open the high voltage (HV) battery."
+      }
+    },
+    "occupant_access": {
+      "access_methods": [
+        {
+          "access_target": "doors",
+          "access_direction": "from_outside",
+          "power_state": "with_power",
+          "procedure_availability": "illustrated_heading_only",
+          "source_text": "OPENING DOORS FROM OUTSIDE WITH POWER"
+        },
+        {
+          "access_target": "doors",
+          "access_direction": "from_inside",
+          "power_state": "with_power",
+          "procedure_availability": "illustrated_heading_only",
+          "source_text": "OPENING DOORS FROM INSIDE WITH POWER"
+        },
+        {
+          "access_target": "tonneau_and_liftgate",
+          "access_direction": "from_inside",
+          "power_state": "with_power",
+          "ordered_steps": [
+            {
+              "step_number": 1,
+              "action": "tonneau_open",
+              "source_text": "Tonneau open"
+            },
+            {
+              "step_number": 2,
+              "action": "tonneau_close",
+              "source_text": "Tonneau close"
+            },
+            {
+              "step_number": 3,
+              "action": "tailgate_open",
+              "source_text": "Tailgate open"
+            }
+          ]
+        },
+        {
+          "access_target": "hood",
+          "access_direction": "from_inside",
+          "power_state": "with_power",
+          "action": "touch_open_hood_button_on_touchscreen",
+          "source_text": "Touch the open hood button on the touchscreen"
+        },
+        {
+          "access_target": "front_doors",
+          "access_direction": "from_inside",
+          "power_state": "without_power",
+          "procedure_availability": "illustrated_heading_only",
+          "source_text": "OPENING FRONT DOORS FROM INSIDE WITHOUT POWER"
+        },
+        {
+          "access_target": "rear_doors",
+          "access_direction": "from_inside",
+          "power_state": "without_power",
+          "procedure_availability": "illustrated_heading_only",
+          "source_text": "OPENING REAR DOORS FROM INSIDE WITHOUT POWER"
+        },
+        {
+          "access_target": "hood",
+          "access_direction": "from_outside",
+          "power_state": "without_power",
+          "action": "use_external_power_supply_to_open",
+          "source_text": "Use external power supply to OPEN"
+        }
+      ],
+      "extrication_constraints": [
+        {
+          "hazard_type": "electrical_or_mechanical_release_failure",
+          "source_text": "Electrical and mechanical releases like doors and seat belts may be compromised after a collision."
+        },
+        {
+          "hazard_type": "electrically_powered_interior_controls_may_fail",
+          "source_text": "The seats, steering wheel, and interior door buttons are electrically powered and may not function after a collision."
+        },
+        {
+          "hazard_type": "outside_door_unlocking_may_fail",
+          "source_text": "After a collision, the doors may not unlock from the outside. Extrication may be required."
+        }
+      ]
+    },
+    "stored_energy_fluids_gases_solids": {
+      "energy_sources": [
+        {
+          "component_class": "low_voltage_battery",
+          "nominal_voltage_v": 48,
+          "chemistry": "lithium_ion"
+        },
+        {
+          "component_class": "high_voltage_battery",
+          "nominal_voltage_v": 800,
+          "chemistry": "lithium_ion"
+        },
+        {
+          "component_class": "air_tank",
+          "energy_type": "stored_compressed_air",
+          "source_text": "AIR"
+        }
+      ],
+      "high_voltage_cables": [
+        {
+          "cable_type": "high_voltage_power_cable",
+          "insulation_color": "orange",
+          "source_text": "All high voltage cables have ORANGE INSULATION."
+        }
+      ],
+      "fluids": [
+        {
+          "fluid_type": "coolant",
+          "color": [
+            "blue",
+            "orange"
+          ],
+          "source_text": "Coolant is blue or orange."
+        }
+      ],
+      "pyrotechnic_devices": [
+        {
+          "component_class": "airbag",
+          "presence_indicated_by": "legend_and_diagram"
+        },
+        {
+          "component_class": "stored_gas_inflator",
+          "presence_indicated_by": "legend_and_diagram"
+        },
+        {
+          "component_class": "seatbelt_pretensioner",
+          "presence_indicated_by": "legend_and_diagram"
+        }
+      ],
+      "prohibited_actions": [
+        {
+          "action": "cut_or_open_high_voltage_components_or_cables",
+          "source_text": "Never cut or open high voltage components or cables."
+        }
+      ]
+    },
+    "fire": {
+      "prohibitions": [
+        {
+          "action": "submerge_vehicle_to_extinguish_or_cool_battery_fire",
+          "source_text": "DO NOT SUBMERGE VEHICLE TO EXTINGUISH/COOL BATTERY FIRE"
+        }
+      ],
+      "suppression_cooling_actions": [
+        {
+          "action": "use_large_amounts_of_water",
+          "target": "battery_enclosure",
+          "application_direction": "from_bottom_of_vehicle",
+          "source_text": "USE LARGE AMOUNTS OF WATER TO COOL THE BATTERY ENCLOSURE FROM THE BOTTOM OF THE VEHICLE"
+        }
+      ],
+      "monitoring_requirements": [
+        {
+          "parameter": "high_voltage_battery_temperature",
+          "minimum_duration_hours": 24,
+          "source_text": "MONITOR HV BATTERY TEMPERATURE FOR AT LEAST 24 HOURS"
+        }
+      ],
+      "reignition_risk": {
+        "risk_present": true,
+        "source_text": "POSSIBLE BATTERY RE-IGNITION!"
+      }
+    },
+    "submersion": {
+      "ordered_steps": [
+        {
+          "step_number": 1,
+          "action": "wear_appropriate_ppe_for_water_rescue"
+        },
+        {
+          "step_number": 2,
+          "action": "remove_vehicle_from_water"
+        },
+        {
+          "step_number": 3,
+          "action": "continue_normal_high_voltage_disabling"
+        },
+        {
+          "step_number": 4,
+          "action": "raise_front_of_vehicle_to_drain_vehicle_and_battery_pack",
+          "lift_height_cm": 30,
+          "source_equivalent_imperial": "1 foot"
+        },
+        {
+          "step_number": 5,
+          "action": "store_vehicle_flat"
+        }
+      ],
+      "drainage_lift_requirement": {
+        "vehicle_end_to_raise": "front",
+        "approximate_lift_height_cm": 30,
+        "source_equivalent_imperial": "1 foot",
+        "purpose": "allow water to drain out of vehicle and battery pack"
+      },
+      "hazard_note": "Vehicles submerged in water should be handled with a greater potential risk of an HV battery fire."
+    },
+    "towing_transport_storage": {
+      "transport_method": {
+        "required_method": "flatbed_towing_truck",
+        "source_text": "Use a towing truck with flatbed."
+      },
+      "prohibited_methods": [
+        {
+          "action": "tow_with_running_traction_wheels",
+          "source_text": "NO towing with running traction wheels."
+        }
+      ],
+      "pre_transport_checks": [
+        {
+          "parameter": "high_voltage_battery_temperature",
+          "source_text": "HV BATTERY TEMPERATURE SHOULD BE CHECKED BEFORE TRANSPORT"
+        }
+      ],
+      "post_incident_storage": {
+        "applies_after": "fire_incident",
+        "storage_location": "outside",
+        "minimum_separation_m": 15,
+        "source_equivalent_imperial": "50 ft",
+        "separate_from": [
+          "other_vehicles",
+          "structures"
+        ],
+        "hazard_note": "POSSIBLE BATTERY RE-IGNITION!"
+      }
+    }
+  },
+  "vehicle_layout": {
+    "components": [
+      {
+        "component_class": "high_voltage_battery",
+        "system": "high_voltage",
+        "location_descriptor": "central_underfloor_area",
+        "diagram_views": [
+          "top_down",
+          "side_view"
+        ],
+        "location_confidence": "direct_diagram_representation"
+      },
+      {
+        "component_class": "low_voltage_battery",
+        "system": "48V_low_voltage",
+        "location_descriptor": "front_vehicle_area",
+        "diagram_views": [
+          "top_down",
+          "side_view"
+        ],
+        "location_confidence": "direct_diagram_representation"
+      },
+      {
+        "component_class": "high_voltage_power_cable",
+        "system": "high_voltage",
+        "location_descriptor": "orange_cable_paths_shown_on_top_down_and_side_diagrams",
+        "location_confidence": "direct_diagram_representation",
+        "note": "Specific cable endpoints are not normalized because the sheet uses diagrammatic routing rather than explicit textual endpoint labels."
+      },
+      {
+        "component_class": "airbag",
+        "location_descriptor": "front_occupant_area_and_side_curtain_positions_shown_in_diagram",
+        "location_confidence": "direct_diagram_representation"
+      },
+      {
+        "component_class": "srs_control_unit",
+        "location_descriptor": "central_area_between_front_seats_as_shown_in_top_down_diagram",
+        "location_confidence": "direct_diagram_representation"
+      },
+      {
+        "component_class": "stored_gas_inflator",
+        "location_descriptor": "multiple_diagram-marked_positions",
+        "location_confidence": "direct_diagram_representation"
+      },
+      {
+        "component_class": "seatbelt_pretensioner",
+        "location_descriptor": "multiple_diagram-marked_positions",
+        "location_confidence": "direct_diagram_representation"
+      },
+      {
+        "component_class": "gas_strut",
+        "location_descriptor": "multiple_diagram-marked_positions",
+        "location_confidence": "direct_diagram_representation",
+        "note": "Exact individual strut assignments are not textually specified in the sheet."
+      },
+      {
+        "component_class": "air_tank",
+        "location_descriptor": "rear_vehicle_area_as_shown_in_side_view",
+        "location_confidence": "direct_diagram_representation"
+      },
+      {
+        "component_class": "cable_cut_area",
+        "location_descriptor": "front_compartment_and_rear_area_as_shown_by_pictograms",
+        "location_confidence": "direct_diagram_representation"
+      }
+    ],
+    "structural_zones": [
+      {
+        "zone_class": "stainless_steel_exterior_body_panels",
+        "source_text": "External body panels made of stainless steel."
+      },
+      {
+        "zone_class": "ultra_high_strength_steel",
+        "location_descriptor": "A_B_and_C_pillar_understructure",
+        "source_text": "Understructure for the A, B, and C pillar are made of ultra-high strength steel."
+      },
+      {
+        "zone_class": "high_strength_steel",
+        "location_descriptor": "forward_overhead_rail",
+        "source_text": "Forward overhead rail is made of high strength steel."
+      }
+    ],
+    "glazing": [
+      {
+        "glazing_locations": [
+          "windshield",
+          "roof",
+          "moving_door_glass"
+        ],
+        "glazing_type": "laminated_glass",
+        "source_text": "Windshield, roof, and moving door glass are laminated glass."
+      },
+      {
+        "glazing_locations": [
+          "rear_window",
+          "front_quarter_side_windows"
+        ],
+        "glazing_type": "tempered_glass",
+        "source_text": "The rear window and front quarter side windows are tempered glass."
+      }
+    ]
+  },
+  "warnings": [
+    {
+      "warning_id": "silent_vehicle_movement",
+      "procedure_phase": "identification_recognition",
+      "hazard_type": "unexpected_vehicle_movement",
+      "source_text": "LACK OF ENGINE NOISE DOES NOT MEAN VEHICLE IS OFF: SILENT MOVEMENT OR INSTANT RESTART CAPABILITY EXISTS UNTIL VEHICLE IS FULLY SHUT DOWN. WEAR APPROPRIATE PPE."
+    },
+    {
+      "warning_id": "do_not_push_hv_battery",
+      "procedure_phase": "stabilization_lifting",
+      "hazard_type": "high_voltage_battery_damage",
+      "source_text": "Do not push on HV Battery."
+    },
+    {
+      "warning_id": "unlabelled_hv_components",
+      "procedure_phase": "disable_direct_hazards",
+      "hazard_type": "electric_shock",
+      "source_text": "Not every high voltage component is labeled."
+    },
+    {
+      "warning_id": "do_not_open_hv_battery",
+      "procedure_phase": "disable_direct_hazards",
+      "hazard_type": "electric_shock",
+      "source_text": "Do not attempt to open the high voltage (HV) battery."
+    },
+    {
+      "warning_id": "releases_may_be_compromised",
+      "procedure_phase": "occupant_access",
+      "hazard_type": "access_failure",
+      "source_text": "Electrical and mechanical releases like doors and seat belts may be compromised after a collision."
+    },
+    {
+      "warning_id": "do_not_submerge_for_battery_fire",
+      "procedure_phase": "fire",
+      "hazard_type": "thermal_runaway",
+      "source_text": "DO NOT SUBMERGE VEHICLE TO EXTINGUISH/COOL BATTERY FIRE"
+    },
+    {
+      "warning_id": "battery_reignition",
+      "procedure_phase": "fire",
+      "hazard_type": "reignition",
+      "source_text": "POSSIBLE BATTERY RE-IGNITION!"
+    }
+  ],
+  "provenance": {
+    "source_document": {
+      "manufacturer": "Tesla",
+      "vehicle": "Cybertruck",
+      "document_id": "TESLA-2023CA-001",
+      "document_version": "02"
+    },
+    "validation_policy": {
+      "standard": "direct_source_only",
+      "rule": "A value is populated only where it is explicitly written, diagrammatically represented, or clearly identified in the supplied rescue-sheet pages.",
+      "diagram_policy": "Do not convert a pictogram into a more precise physical location unless the supplied diagram directly supports that location.",
+      "unsupported_detail_policy": "Use a non-specific location descriptor or omit the detail rather than infer an exact component placement."
+    },
+    "page_to_attachment_mapping": {
+      "01/04": "file:2 (3.jpg)",
+      "02/04": "file:4 (4.jpg)",
+      "03/04": "file:1 (2.jpg)",
+      "04/04": "file:3 (1.jpg)"
+    }
+  }
+}

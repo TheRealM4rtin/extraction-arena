@@ -4,6 +4,7 @@ import { Database, Maximize2, X } from 'lucide-react';
 import { JsonTree } from '@/components/dataset-viewer/JsonTree';
 import { useAppStore } from '@/store';
 import { buildNestedPatch, type DatasetRecord } from '@/lib/dataset';
+import { validate } from '@/lib/canonical/validate';
 
 const ACCENT = '#10B981';
 
@@ -11,8 +12,9 @@ const ACCENT = '#10B981';
  * Sidebar Dataset Viewer. Renders as a compact metadata panel that fills
  * the remaining sidebar height below Datasets + Pages. Hovering reveals an
  * "Open fullscreen" pill (same pattern as PageViewer); clicking opens a
- * scrollable modal with the full Metadata + Golden tree (editable, same
- * design as the previous collapsible band).
+ * scrollable modal showing the canonical rescue-sheet record (source of truth,
+ * editable metadata) plus the derived golden projection (read-only) used by
+ * scoring.
  */
 export function DatasetViewer() {
   const active = useAppStore((s) => s.active);
@@ -40,17 +42,10 @@ export function DatasetViewer() {
   }, [fullscreen]);
 
   const metaEditable = useMemo(() => new Set<string>(['name']), []);
-  const goldenEditable = useMemo(() => {
-    const set = new Set<string>();
-    if (active) {
-      for (const key of Object.keys(active.golden.golden_extraction)) {
-        set.add(`golden_extraction.${key}.value`);
-        set.add(`golden_extraction.${key}.difficulty`);
-        set.add(`golden_extraction.${key}.source`);
-      }
-    }
-    return set;
-  }, [active]);
+
+  // Validation issues on the canonical record (informational; never blocks).
+  const issues = useMemo(() => (active ? validate(active.canonical).issues : []), [active]);
+  const errorCount = issues.filter((i) => i.level === 'error').length;
 
   if (!active) return null;
 
@@ -61,19 +56,13 @@ export function DatasetViewer() {
     pageCount: active.pageCount,
     fieldCount: active.fieldCount,
     createdAt: new Date(active.createdAt).toISOString(),
-  };
-  const goldenView = {
-    golden_extraction: active.golden.golden_extraction,
-    ...(active.golden.model_evaluation_hints
-      ? { model_evaluation_hints: active.golden.model_evaluation_hints }
-      : {}),
-    ...(active.golden.reasoning_log ? { reasoning_log: active.golden.reasoning_log } : {}),
+    lifecycle: active.canonical.lifecycle_status,
+    schema: active.canonical.schema_version,
+    validationIssues: errorCount,
   };
 
   const saveMeta = (path: string[], value: unknown) =>
     updateActiveDataset(buildNestedPatch(path, value) as Partial<DatasetRecord>);
-  const saveGolden = (path: string[], value: unknown) =>
-    updateActiveDataset(buildNestedPatch(['golden', ...path], value) as Partial<DatasetRecord>);
 
   return (
     <>
@@ -92,8 +81,17 @@ export function DatasetViewer() {
           <h2 className="text-sm font-bold uppercase tracking-wider" style={{ color: ACCENT }}>
             Dataset Viewer
           </h2>
-          <span className="ml-auto rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-            {active.fieldCount}f · {active.pageCount}p
+          <span className="ml-auto flex items-center gap-1.5">
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
+              style={{ background: `${ACCENT}20`, color: ACCENT }}
+              title="Canonical record lifecycle status"
+            >
+              {active.canonical.lifecycle_status}
+            </span>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+              {active.fieldCount}f · {active.pageCount}p
+            </span>
           </span>
         </div>
 
@@ -114,11 +112,11 @@ export function DatasetViewer() {
         open={fullscreen}
         onClose={() => setFullscreen(false)}
         meta={meta}
-        goldenView={goldenView}
+        canonicalView={active.canonical as unknown as Record<string, unknown>}
+        goldenView={{ golden_extraction: active.golden.golden_extraction }}
         metaEditable={metaEditable}
-        goldenEditable={goldenEditable}
         onSaveMeta={saveMeta}
-        onSaveGolden={saveGolden}
+        issues={issues}
         datasetName={active.name}
       />
     </>
@@ -151,11 +149,11 @@ interface DatasetFullscreenModalProps {
   open: boolean;
   onClose: () => void;
   meta: Record<string, unknown>;
+  canonicalView: Record<string, unknown>;
   goldenView: Record<string, unknown>;
   metaEditable: Set<string>;
-  goldenEditable: Set<string>;
   onSaveMeta: (path: string[], value: unknown) => Promise<void>;
-  onSaveGolden: (path: string[], value: unknown) => Promise<void>;
+  issues: Array<{ level: 'error' | 'warning'; path: string; code: string; message: string }>;
   datasetName: string;
 }
 
@@ -163,13 +161,14 @@ function DatasetFullscreenModal({
   open,
   onClose,
   meta,
+  canonicalView,
   goldenView,
   metaEditable,
-  goldenEditable,
   onSaveMeta,
-  onSaveGolden,
+  issues,
   datasetName,
 }: DatasetFullscreenModalProps) {
+  const readOnly = useMemo(() => new Set<string>(), []);
   return (
     <AnimatePresence>
       {open && (
@@ -215,18 +214,43 @@ function DatasetFullscreenModal({
 
             {/* Scrollable body */}
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="grid grid-cols-1 gap-4 px-4 py-4 lg:grid-cols-[minmax(260px,1fr)_2fr]">
+              <div className="grid grid-cols-1 gap-4 px-4 py-4 lg:grid-cols-[minmax(240px,1fr)_1.4fr_1fr]">
                 <section className="flex flex-col gap-2">
-                  <SectionLabel title="Metadata" subtitle="Dataset record" />
+                  <SectionLabel title="Metadata" subtitle="Dataset record · editable" />
                   <JsonTree data={meta} accent={ACCENT} editablePaths={metaEditable} onSave={onSaveMeta} />
                 </section>
                 <section className="flex min-w-0 flex-col gap-2">
-                  <SectionLabel title="Golden dataset" subtitle="Extraction ground truth · editable" />
-                  <JsonTree data={goldenView} accent={ACCENT} editablePaths={goldenEditable} onSave={onSaveGolden} />
+                  <SectionLabel title="Canonical record" subtitle="rescue-sheet-ev-v1.0 · source of truth" />
+                  <JsonTree data={canonicalView} accent={ACCENT} editablePaths={readOnly} onSave={() => Promise.resolve()} />
+                  {issues.length > 0 && (
+                    <ul className="mt-1 flex flex-col gap-1 rounded-lg border border-amber-500/20 bg-amber-500/5 p-2">
+                      {issues.slice(0, 8).map((i, idx) => (
+                        <li key={idx} className="flex items-start gap-1.5 text-[11px]">
+                          <span
+                            className={
+                              i.level === 'error' ? 'text-rose-400' : 'text-amber-400'
+                            }
+                          >
+                            {i.level === 'error' ? '✕' : '⚠'}
+                          </span>
+                          <span className="font-mono text-muted-foreground">{i.path}</span>
+                          <span className="text-foreground/80">{i.message}</span>
+                        </li>
+                      ))}
+                      {issues.length > 8 && (
+                        <li className="text-[11px] text-muted-foreground">+{issues.length - 8} more…</li>
+                      )}
+                    </ul>
+                  )}
+                </section>
+                <section className="flex min-w-0 flex-col gap-2">
+                  <SectionLabel title="Scoring projection" subtitle="Derived · read-only" />
+                  <JsonTree data={goldenView} accent={ACCENT} editablePaths={readOnly} onSave={() => Promise.resolve()} />
                 </section>
               </div>
               <p className="border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
-                Hover a row and click the pencil to edit. Changes persist to your browser (IndexedDB) and survive a refresh.
+                The canonical record is the contract; the scoring projection is derived from it for the
+                GLM/GPT field-by-field scorer. Changes persist to your browser (IndexedDB).
               </p>
             </div>
           </motion.div>

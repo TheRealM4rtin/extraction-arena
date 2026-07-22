@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, UploadCloud, Loader2, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
 import { convertPdfToPages, type PageImage } from '@/lib/api';
-import { normalizeGolden, type GoldenDataset } from '@/lib/dataset';
 import { useAppStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -78,16 +77,16 @@ export function CreateDatasetDialog({ open, onClose }: CreateDatasetDialogProps)
 
   const handleSave = async () => {
     setGoldenError(null);
-    let golden: GoldenDataset;
+    let rawJson: unknown;
     try {
-      golden = normalizeGolden(JSON.parse(goldenText));
+      rawJson = JSON.parse(goldenText);
     } catch (e) {
       setGoldenError(e instanceof Error ? e.message : 'Invalid JSON.');
       return;
     }
     setSaving(true);
     try {
-      await createDataset({ name, pdfName, dpi, pages, golden });
+      await createDataset({ name, pdfName, dpi, pages, rawJson });
       close();
     } catch (e) {
       setGoldenError(e instanceof Error ? e.message : 'Could not save dataset.');
@@ -176,14 +175,16 @@ export function CreateDatasetDialog({ open, onClose }: CreateDatasetDialogProps)
                 <div className="flex flex-col gap-3">
                   <div className="flex items-center justify-between">
                     <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Golden dataset JSON
+                      Golden rescue-sheet JSON
                     </label>
-                    <span className="text-[10px] text-muted-foreground">Requires a "golden_extraction" object</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Rich ISO gold or free-form → v1.1
+                    </span>
                   </div>
                   <Textarea
                     value={goldenText}
                     spellCheck={false}
-                    placeholder='{ "golden_extraction": { "field_key": { "value": "...", "difficulty": "text", "source": "Page 1/4" } } }'
+                    placeholder='{ "schema_version": "rescue-sheet-ev-v1.0", "vehicle": { "manufacturer": "Tesla", "model": "Cybertruck", "propulsion": { "primary_energy_source": "electricity", "high_voltage_systems": [{ "nominal_voltage_v": 800 }] } }, "responder_information": { "immobilization": { "ordered_steps": [{ "step_number": 1, "action": "chock_wheels" }] } }, "vehicle_layout": { "components": [{ "component_class": "high_voltage_battery", "location_descriptor": "central_underfloor_area" }] } }'
                     className="min-h-[260px] resize-y font-mono text-xs"
                     onChange={(e) => setGoldenText(e.target.value)}
                   />
@@ -193,10 +194,13 @@ export function CreateDatasetDialog({ open, onClose }: CreateDatasetDialogProps)
                     </p>
                   )}
                   <div className="rounded-md border border-border bg-background/60 p-2.5 text-[11px] text-muted-foreground">
-                    <p className="mb-1 font-semibold text-foreground">Output shape</p>
-                    Each field becomes an extraction target. <code className="font-mono text-foreground">value</code> may be a
-                    string, array, or object. <code className="font-mono text-foreground">difficulty</code> and{' '}
-                    <code className="font-mono text-foreground">source</code> are optional metadata shown in the Golden column.
+                    <p className="mb-1 font-semibold text-foreground">How this is stored</p>
+                    Your JSON is the <span className="text-foreground">raw source</span>. Rich ISO-style gold is
+                    envelope-stamped into <code className="font-mono text-foreground">rescue-sheet-ev-v1.1</code>; free-form{' '}
+                    <code className="font-mono text-foreground">{'{ golden_extraction }'}</code> goes through the Tesla
+                    adapter. Ground Truth shows a derived projection for scoring; the full tree lives on{' '}
+                    <code className="font-mono text-foreground">canonical</code>. Extraction always uses the full empty
+                    v1.1 schema (never golden answers).
                   </div>
                 </div>
               )}
