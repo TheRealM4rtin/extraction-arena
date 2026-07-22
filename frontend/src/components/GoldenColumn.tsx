@@ -23,7 +23,7 @@ export function GoldenColumn() {
   const hints = golden.model_evaluation_hints;
 
   return (
-    <div className="flex flex-col gap-2 px-3 pb-4">
+    <div className="flex min-w-0 flex-col gap-2 px-3 pb-4">
       {entries.map(([key, field], i) => (
         <GoldenCell key={key} fieldKey={key} field={field} index={i} />
       ))}
@@ -82,7 +82,7 @@ function GoldenCell({
         scale: { type: 'spring', stiffness: 320, damping: 22 },
       }}
       className={cn(
-        'relative rounded-lg bg-background/60 p-2.5 transition-[background-color,border-color,box-shadow] duration-300',
+        'relative min-w-0 overflow-hidden rounded-lg bg-background/60 p-2.5 transition-[background-color,border-color,box-shadow] duration-300',
         isHighlighted
           ? 'z-10 border border-gt/50 bg-gt/[0.07]'
           : 'border border-transparent',
@@ -96,24 +96,28 @@ function GoldenCell({
           : undefined
       }
     >
-      <div className="relative">
-        <div className="mb-1 flex items-start justify-between gap-2">
-          <p className="text-xs font-bold text-gt">{humanLabel(fieldKey)}</p>
+      <div className="relative min-w-0">
+        <div className="mb-1 flex min-w-0 items-start justify-between gap-2">
+          <p className="min-w-0 break-words text-xs font-bold text-gt">{humanLabel(fieldKey)}</p>
           {field.difficulty && (
-            <Badge className="border-gt/30 bg-gt/10 text-[10px] text-gt">{field.difficulty}</Badge>
+            <Badge className="shrink-0 border-gt/30 bg-gt/10 text-[10px] text-gt">{field.difficulty}</Badge>
           )}
         </div>
         <FieldValue value={field.value} />
         {field.source && (
-          <p className="mt-1.5 flex items-center gap-1 text-[10px] text-muted-foreground">
-            <Tag className="h-3 w-3" />
-            {field.source}
+          <p className="mt-1.5 flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
+            <Tag className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 break-words line-clamp-2">{field.source}</span>
           </p>
         )}
       </div>
     </motion.div>
   );
 }
+
+/** Shared cell text classes: wrap long content, hard-cap at 2 lines, never grow the column. */
+const CELL_TEXT =
+  'min-w-0 break-words [overflow-wrap:anywhere] line-clamp-2 font-mono text-sm leading-relaxed text-foreground';
 
 function FieldValue({ value }: { value: GoldenValue }) {
   const kind = valueKind(value);
@@ -122,11 +126,13 @@ function FieldValue({ value }: { value: GoldenValue }) {
     const arr = value as string[];
     if (arr.length === 0) return <p className="font-mono text-sm text-muted-foreground">—</p>;
     return (
-      <ul className="flex flex-col gap-0.5">
+      <ul className="flex min-w-0 flex-col gap-0.5">
         {arr.map((item, idx) => (
-          <li key={idx} className="flex gap-1.5 font-mono text-sm text-foreground">
-            <span className="text-gt/60">•</span>
-            <span>{item}</span>
+          <li key={idx} className="flex min-w-0 gap-1.5 font-mono text-sm text-foreground">
+            <span className="shrink-0 text-gt/60">•</span>
+            <span className={CELL_TEXT} title={item}>
+              {item}
+            </span>
           </li>
         ))}
       </ul>
@@ -137,11 +143,13 @@ function FieldValue({ value }: { value: GoldenValue }) {
     const entries = Object.entries(value as Record<string, string>);
     if (entries.length === 0) return <p className="font-mono text-sm text-muted-foreground">—</p>;
     return (
-      <dl className="flex flex-col gap-0.5">
+      <dl className="flex min-w-0 flex-col gap-0.5">
         {entries.map(([k, v]) => (
-          <div key={k} className="flex gap-1.5 font-mono text-sm">
-            <dt className="text-gt/70">{k}:</dt>
-            <dd className="text-foreground">{v}</dd>
+          <div key={k} className="flex min-w-0 gap-1.5 font-mono text-sm">
+            <dt className="shrink-0 text-gt/70">{k}:</dt>
+            <dd className={CELL_TEXT} title={v}>
+              {v}
+            </dd>
           </div>
         ))}
       </dl>
@@ -149,9 +157,12 @@ function FieldValue({ value }: { value: GoldenValue }) {
   }
 
   const str = value as string;
+  if (str === 'not_found' || str === '') {
+    return <p className="font-mono text-sm text-muted-foreground">—</p>;
+  }
   return (
-    <p className="font-mono text-sm leading-relaxed text-foreground">
-      {str === 'not_found' || str === '' ? <span className="text-muted-foreground">—</span> : str}
+    <p className={CELL_TEXT} title={str}>
+      {str}
     </p>
   );
 }
