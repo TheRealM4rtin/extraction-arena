@@ -11,9 +11,11 @@ import {
   tokenizeScalar,
   accuracyBand,
   resolveFieldConfig,
+  reapplyJudgeResults,
   type DatasetEvaluation,
   type FieldEvaluation,
   type FieldEvalConfig,
+  type JudgeFieldResult,
 } from './evaluation';
 
 export { isAbsentValue, normalizeStr, tokenizeScalar, accuracyBand };
@@ -35,13 +37,18 @@ export interface ScoreResult {
   perField: FieldScore[];
   matched: number;
   total: number;
-  /** 0-100 exact-match accuracy across fields. */
+  /** 0-100 exact-match accuracy across fields (gate). */
   accuracy: number;
   /** 0-100 mean partial credit (softer metric). */
   partialAccuracy: number;
+  /** 0-100 composed extraction score (primary UI gauge). */
+  extractionScore: number;
   meanPrecision?: number;
   meanRecall?: number;
   meanF1?: number;
+  detAccuracy?: number;
+  judgeUpliftCount?: number;
+  judgeReviewedCount?: number;
   /** Full dataset evaluation (single engine). */
   evaluation?: DatasetEvaluation;
 }
@@ -63,16 +70,7 @@ export function fieldMatch(
   return { match: ev.match, partial: ev.partial };
 }
 
-/**
- * Score one model extraction against golden.
- * Uses smart defaults (and optional per-field config overrides).
- */
-export function scoreDataset(
-  extracted: Record<string, GoldenValue>,
-  golden: GoldenDataset,
-  configMap: Record<string, Partial<FieldEvalConfig>> = {}
-): ScoreResult {
-  const evaluation = evalDataset(extracted, golden, configMap);
+function toScoreResult(evaluation: DatasetEvaluation, golden: GoldenDataset): ScoreResult {
   const perField: FieldScore[] = evaluation.perField.map((f) => {
     const meta = golden.golden_extraction[f.key];
     return {
@@ -93,9 +91,40 @@ export function scoreDataset(
     total: evaluation.total,
     accuracy: evaluation.accuracy,
     partialAccuracy: evaluation.partialAccuracy,
+    extractionScore: evaluation.extractionScore,
     meanPrecision: evaluation.meanPrecision,
     meanRecall: evaluation.meanRecall,
     meanF1: evaluation.meanF1,
+    detAccuracy: evaluation.detAccuracy,
+    judgeUpliftCount: evaluation.judgeUpliftCount,
+    judgeReviewedCount: evaluation.judgeReviewedCount,
     evaluation,
   };
+}
+
+/**
+ * Score one model extraction against golden.
+ * Uses smart defaults (and optional per-field config overrides).
+ * When `judgeResults` is provided, deterministic scores are uplifted without re-calling the LLM.
+ */
+export function scoreDataset(
+  extracted: Record<string, GoldenValue>,
+  golden: GoldenDataset,
+  configMap: Record<string, Partial<FieldEvalConfig>> = {},
+  judgeResults?: Record<string, JudgeFieldResult>
+): ScoreResult {
+  const det = evalDataset(extracted, golden, configMap);
+  const evaluation =
+    judgeResults && Object.keys(judgeResults).length > 0
+      ? reapplyJudgeResults(det, judgeResults)
+      : det;
+  return toScoreResult(evaluation, golden);
+}
+
+/** Build ScoreResult from a stored DatasetEvaluation (e.g. post-judge on ModelResult). */
+export function scoreFromEvaluation(
+  evaluation: DatasetEvaluation,
+  golden: GoldenDataset
+): ScoreResult {
+  return toScoreResult(evaluation, golden);
 }

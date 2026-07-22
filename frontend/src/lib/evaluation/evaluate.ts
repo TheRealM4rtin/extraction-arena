@@ -21,6 +21,7 @@ import {
   type AlignmentResult,
 } from './align';
 import { itemSimilarity, scalarGateMatch, scalarPartial } from './similarity';
+import { extractionScore as extractionScoreFromSignals } from './score-compose';
 
 function harmonicMean(precision: number, recall: number): number {
   if (precision + recall === 0) return 0;
@@ -242,15 +243,24 @@ export function aggregateFieldEvaluations(perField: FieldEvaluation[]): DatasetE
   const rSum = perField.reduce((acc, f) => acc + f.recall, 0);
   const fSum = perField.reduce((acc, f) => acc + f.f1, 0);
 
+  const accuracy = total === 0 ? 0 : Math.round((matched / total) * 100);
+  const partialAccuracy = total === 0 ? 0 : Math.round((partialSum / total) * 100);
+  const meanPrecision = total === 0 ? 0 : pSum / total;
+  const meanRecall = total === 0 ? 0 : rSum / total;
+  const meanF1 = total === 0 ? 0 : fSum / total;
+
   return {
     perField,
     matched,
     total,
-    accuracy: total === 0 ? 0 : Math.round((matched / total) * 100),
-    partialAccuracy: total === 0 ? 0 : Math.round((partialSum / total) * 100),
-    meanPrecision: total === 0 ? 0 : pSum / total,
-    meanRecall: total === 0 ? 0 : rSum / total,
-    meanF1: total === 0 ? 0 : fSum / total,
+    accuracy,
+    partialAccuracy,
+    meanPrecision,
+    meanRecall,
+    meanF1,
+    extractionScore: extractionScoreFromSignals({ accuracy, partialAccuracy, meanF1 }),
+    judgeUpliftCount: perField.filter((f) => f.judge?.upliftApplied).length,
+    judgeReviewedCount: perField.filter((f) => f.judge != null).length,
   };
 }
 

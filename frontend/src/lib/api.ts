@@ -4,6 +4,7 @@ import { project } from './canonical/project';
 import { validate, type Issue } from './canonical/validate';
 import type { SourceContext } from './canonical/adapters/types';
 import type { RescueSheetV1Draft } from './canonical/schema';
+import type { DatasetEvaluation, JudgeFieldResult } from './evaluation/types';
 
 export interface PageImage {
   page: number;
@@ -13,6 +14,9 @@ export interface PageImage {
 }
 
 export type ModelStatus = 'idle' | 'loading' | 'done' | 'error';
+
+/** Semantic judge lifecycle (runs after extraction when fields score low). */
+export type JudgeStatus = 'idle' | 'judging' | 'done' | 'error' | 'skipped';
 
 export interface ModelResult {
   modelId: string;
@@ -29,6 +33,15 @@ export interface ModelResult {
   estimatedCostUsd: number;
   status: ModelStatus;
   error?: string;
+  /**
+   * Post-uplift dataset evaluation (deterministic + optional LLM judge).
+   * When present, UI gauges prefer this over re-scoring from scratch.
+   */
+  evaluation?: DatasetEvaluation;
+  /** Field/item id → judge verdict map for re-apply after config edits. */
+  judgeResults?: Record<string, JudgeFieldResult>;
+  judgeStatus?: JudgeStatus;
+  judgeError?: string;
 }
 
 export interface VisionConfig {
@@ -257,6 +270,58 @@ export function isAbortError(error: unknown): boolean {
       // Some runtimes surface aborted fetches as a TypeError "aborted"
       /aborted/i.test(error.message))
   );
+}
+
+export interface LlmJsonCallOptions {
+  endpoint: string;
+  apiKey: string;
+  modelId: string;
+  system?: string;
+  user: string;
+  signal?: AbortSignal;
+  temperature?: number;
+}
+
+/**
+ * Text-only OpenAI-compatible chat completion expecting a JSON object body.
+ * Used by the semantic judge (no images). Routes through `/api/llm` for CORS.
+ */
+export async function callLlmJson(options: LlmJsonCallOptions): Promise<unknown> {
+  const messages: Array<{ role: string; content: string }> = [];
+  if (options.system?.trim()) {
+    messages.push({ role: 'system', content: options.system });
+  }
+  messages.push({ role: 'user', content: options.user });
+
+  const payload = {
+    model: options.modelId,
+    messages,
+    temperature: options.temperature ?? 0,
+    response_format: { type: 'json_object' as const },
+  };
+
+  const res = await fetch('/api/llm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal: options.signal,
+    body: JSON.stringify({
+      endpoint: options.endpoint,
+      apiKey: options.apiKey,
+      payload,
+    }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw createHttpStatusError(res.status, formatHttpError(res.status, errText || res.statusText));
+  }
+
+  const json = await res.json();
+  const contentText: string = json?.choices?.[0]?.message?.content ?? '';
+  if (!contentText.trim()) {
+    throw new Error('Judge returned empty content.');
+  }
+  return parseJsonLoose(contentText);
 }
 
 function createHttpStatusError(status: number, message: string): HttpStatusError {

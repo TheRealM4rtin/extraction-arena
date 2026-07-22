@@ -9,11 +9,14 @@ import {
   meanPrf,
   scoreBand,
   DEFAULT_FIELD_CONFIG,
+  applyJudgeUplift,
+  resolveFieldJudge,
   type FieldEvalConfig,
   type MatchStrategy,
   type OptimizationPriority,
   type PRF,
   type FieldEvaluation,
+  type JudgeFieldResult,
 } from './evaluation';
 
 export type { MatchStrategy, OptimizationPriority, PRF, FieldEvalConfig };
@@ -35,11 +38,16 @@ export interface FieldMetricsRow {
 
 /**
  * Build dashboard rows from the same engine the main UI uses.
+ * Optional per-model `judgeResults` re-apply semantic uplift without LLM calls.
  */
 export function buildDashboardRows(
   goldenKeys: string[],
   goldenExtraction: Record<string, { value: GoldenValue }>,
-  modelResults: Array<{ id: string; data: Record<string, GoldenValue> }>,
+  modelResults: Array<{
+    id: string;
+    data: Record<string, GoldenValue>;
+    judgeResults?: Record<string, JudgeFieldResult>;
+  }>,
   configs: Record<string, Partial<FieldEvalConfig>>
 ): FieldMetricsRow[] {
   return goldenKeys.map((key) => {
@@ -48,11 +56,13 @@ export function buildDashboardRows(
     const byModel: Record<string, PRF> = {};
     const evaluationsByModel: Record<string, FieldEvaluation> = {};
 
-    for (const { id, data } of modelResults) {
+    for (const { id, data, judgeResults } of modelResults) {
       if (goldenValue === undefined) continue;
       // Same universe as evaluateDataset: missing keys score as not_found.
       const modelValue = data[key] ?? 'not_found';
-      const ev = evaluateField(modelValue, goldenValue, key, config);
+      const det = evaluateField(modelValue, goldenValue, key, config);
+      const judge = resolveFieldJudge(key, judgeResults ?? {});
+      const ev = applyJudgeUplift(det, judge);
       evaluationsByModel[id] = ev;
       byModel[id] = {
         precision: ev.precision,
