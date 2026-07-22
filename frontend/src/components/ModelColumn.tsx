@@ -10,7 +10,7 @@ import { scoreDataset } from '@/lib/scoring';
 import { useActiveEvalConfigMap, useAppStore } from '@/store';
 import { cn, formatMs, formatCost } from '@/lib/utils';
 
-export type ColumnSource = 'glm' | 'gpt';
+export type ColumnSource = 'glm' | 'gpt' | 'grok';
 
 interface ModelColumnProps {
   source: ColumnSource;
@@ -19,7 +19,7 @@ interface ModelColumnProps {
   isWinner: boolean;
 }
 
-/** GML-5V-Turbo / GPT-5.4 mini comparison column (dataset-driven fields). */
+/** Vision-model comparison column (GLM / GPT / Grok — dataset-driven fields). */
 export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProps) {
   const result = useAppStore((s) => s[source]);
   const golden = useAppStore((s) => s.active?.golden ?? null);

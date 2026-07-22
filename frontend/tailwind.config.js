@@ -60,6 +60,10 @@ export default {
           DEFAULT: 'rgb(var(--gpt) / <alpha-value>)',
           soft: 'rgba(139,92,246,0.12)',
         },
+        grok: {
+          DEFAULT: 'rgb(var(--grok) / <alpha-value>)',
+          soft: 'rgba(244,63,94,0.12)',
+        },
       },
       fontFamily: {
         sans: ['"Inter Variable"', 'Inter', 'system-ui', 'sans-serif'],

@@ -15,8 +15,10 @@ interface SettingsPanelProps {
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const zaiKey = useAppStore((s) => s.zaiKey);
   const openaiKey = useAppStore((s) => s.openaiKey);
+  const xaiKey = useAppStore((s) => s.xaiKey);
   const setZaiKey = useAppStore((s) => s.setZaiKey);
   const setOpenaiKey = useAppStore((s) => s.setOpenaiKey);
+  const setXaiKey = useAppStore((s) => s.setXaiKey);
 
   const [showKeys, setShowKeys] = useState(false);
 
@@ -71,9 +73,16 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 onChange={setOpenaiKey}
                 shown={showKeys}
               />
+              <KeyField
+                label="xAI API Key (Grok 4.5)"
+                value={xaiKey}
+                onChange={setXaiKey}
+                shown={showKeys}
+              />
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Keys are read from <code className="font-mono">VITE_ZAI_API_KEY</code> and{' '}
-                <code className="font-mono">VITE_OPENAI_API_KEY</code> at build time and stored only in
+                Keys are read from <code className="font-mono">VITE_ZAI_API_KEY</code>,{' '}
+                <code className="font-mono">VITE_OPENAI_API_KEY</code>, and{' '}
+                <code className="font-mono">VITE_XAI_API_KEY</code> at build time and stored only in
                 your browser. LLM calls are forwarded through the same-origin backend proxy and are never
                 persisted server-side.
               </p>

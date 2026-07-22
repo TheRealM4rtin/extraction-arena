@@ -39,7 +39,8 @@ export default function App() {
     void loadCatalog();
   }, [loadCatalog]);
 
-  const anyEnabled = enabledModels.glm || enabledModels.gpt;
+  const anyEnabled =
+    enabledModels.glm || enabledModels.gpt || enabledModels.grok;
 
   const handleRun = useCallback(async () => {
     if (!anyEnabled) return;
@@ -81,6 +82,7 @@ export default function App() {
       golden,
       glm: { ...state.glm, score: scoreDataset(state.glm.data, golden, configMap) },
       gpt: { ...state.gpt, score: scoreDataset(state.gpt.data, golden, configMap) },
+      grok: { ...state.grok, score: scoreDataset(state.grok.data, golden, configMap) },
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -147,8 +149,8 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <div>
         <h2 className="text-xl font-bold tracking-tight">No dataset selected</h2>
         <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-          Create a dataset by uploading a PDF and its golden extraction JSON. Then run GLM-5V-Turbo and
-          GPT-5.4 mini against it. Everything is saved locally and re-usable after restart.
+          Create a dataset by uploading a PDF and its golden extraction JSON. Then run GLM-5V-Turbo,
+          GPT-5.4 mini, and Grok 4.5 against it. Everything is saved locally and re-usable after restart.
         </p>
       </div>
       <button

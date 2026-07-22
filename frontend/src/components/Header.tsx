@@ -44,6 +44,7 @@ export function Header({ onOpenSettings, onOpenMetrics }: HeaderProps) {
           <StatusDot label="Dataset" color="#10B981" />
           <StatusDot label="GLM" color="#06B6D4" />
           <StatusDot label="GPT" color="#8B5CF6" />
+          <StatusDot label="Grok" color="#F43F5E" />
         </div>
         <span className="font-mono text-sm tabular-nums text-muted-foreground">
           {now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
