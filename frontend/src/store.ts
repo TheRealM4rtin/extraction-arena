@@ -16,17 +16,20 @@ import { type FieldEvalConfig, resolveFieldConfig } from './lib/metrics';
 export type ConvertStatus = 'idle' | 'converting' | 'ready' | 'error';
 
 /** Model keys that participate in the comparison (Ground Truth has no toggle). */
-export type ModelKey = 'glm' | 'gpt';
+export type ModelKey = 'glm' | 'gpt' | 'grok';
+
+/** Stable list of model keys for iteration (order matches DEFAULT_COLUMN_ORDER). */
+export const MODEL_KEYS: ModelKey[] = ['glm', 'gpt', 'grok'];
 
 /**
- * All comparable column keys (Ground Truth + the two models). The default
+ * All comparable column keys (Ground Truth + models). The default
  * render order is fixed (see DEFAULT_COLUMN_ORDER) but the user can drag-and-drop
  * to reorder for the duration of the session.
  */
 export type ColumnKey = 'gt' | ModelKey;
 
-/** Canonical default order: Ground Truth · GLM · GPT. */
-export const DEFAULT_COLUMN_ORDER: ColumnKey[] = ['gt', 'glm', 'gpt'];
+/** Canonical default order: Ground Truth · GLM · GPT · Grok. */
+export const DEFAULT_COLUMN_ORDER: ColumnKey[] = ['gt', 'glm', 'gpt', 'grok'];
 
 interface AppState {
   // Dataset catalog
@@ -37,6 +40,7 @@ interface AppState {
   // API keys (seeded from VITE_ env, editable from settings)
   zaiKey: string;
   openaiKey: string;
+  xaiKey: string;
 
   // Per-dataset custom prompt context (keyed by dataset id). When unset for
   // the active dataset, the prompt falls back to the dataset's PDF filename.
@@ -52,6 +56,7 @@ interface AppState {
   // Model results (re-scored against the active dataset's golden)
   glm: ModelResult;
   gpt: ModelResult;
+  grok: ModelResult;
 
   /**
    * Per-model enabled flag. All models default to OFF — the user must
@@ -102,6 +107,7 @@ interface AppState {
   // Keys / UI
   setZaiKey: (k: string) => void;
   setOpenaiKey: (k: string) => void;
+  setXaiKey: (k: string) => void;
 
   /** Set the prompt context for the active dataset (persisted in-memory only). */
   setDocumentContext: (value: string) => void;
@@ -115,6 +121,7 @@ interface AppState {
   // Results
   setGlm: (r: ModelResult) => void;
   setGpt: (r: ModelResult) => void;
+  setGrok: (r: ModelResult) => void;
   resetResults: () => void;
 
   /** Toggle a model column's enabled state (defaults: all off). */
@@ -135,6 +142,10 @@ function idleModel(id: string, label: string): ModelResult {
   };
 }
 
+const IDLE_GLM = () => idleModel('glm-5v-turbo', 'GLM-5V-Turbo');
+const IDLE_GPT = () => idleModel('gpt-5.4-mini', 'GPT-5.4 mini');
+const IDLE_GROK = () => idleModel('grok-4.5', 'Grok 4.5');
+
 export const useAppStore = create<AppState>((set, get) => ({
   datasets: [],
   catalogLoading: false,
@@ -142,15 +153,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   zaiKey: import.meta.env.VITE_ZAI_API_KEY ?? '',
   openaiKey: import.meta.env.VITE_OPENAI_API_KEY ?? '',
+  xaiKey: import.meta.env.VITE_XAI_API_KEY ?? '',
 
   customContexts: {},
 
   metricConfigs: {},
 
-  glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
-  gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
+  glm: IDLE_GLM(),
+  gpt: IDLE_GPT(),
+  grok: IDLE_GROK(),
 
-  enabledModels: { glm: false, gpt: false },
+  enabledModels: { glm: false, gpt: false, grok: false },
 
   columnOrder: [...DEFAULT_COLUMN_ORDER],
   setColumnOrder: (columnOrder) => set({ columnOrder }),
@@ -232,8 +245,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const record = await loadDataset(id);
     set((s) => ({
       active: record ?? null,
-      glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
-      gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
+      glm: IDLE_GLM(),
+      gpt: IDLE_GPT(),
+      grok: IDLE_GROK(),
       // Hydrate in-memory overrides from the persisted dataset record.
       metricConfigs: record
         ? {
@@ -266,6 +280,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setZaiKey: (zaiKey) => set({ zaiKey }),
   setOpenaiKey: (openaiKey) => set({ openaiKey }),
+  setXaiKey: (xaiKey) => set({ xaiKey }),
 
   setDocumentContext: (value) => {
     const active = get().active;
@@ -303,10 +318,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setGlm: (glm) => set({ glm }),
   setGpt: (gpt) => set({ gpt }),
+  setGrok: (grok) => set({ grok }),
   resetResults: () =>
     set({
-      glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
-      gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
+      glm: IDLE_GLM(),
+      gpt: IDLE_GPT(),
+      grok: IDLE_GROK(),
       openFieldKey: null,
     }),
 

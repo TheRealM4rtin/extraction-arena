@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_OPENAI_API_KEY: string;
   readonly VITE_ZAI_API_KEY: string;
+  readonly VITE_XAI_API_KEY: string;
 }
 
 interface ImportMeta {

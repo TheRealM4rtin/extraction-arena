@@ -4,27 +4,29 @@ import {
   isAbortError,
   GLM_PRICING,
   GPT_PRICING,
+  GROK_PRICING,
   type ModelResult,
   type PageImage,
   type VisionConfig,
 } from '@/lib/api';
 import { buildCanonicalPrompt } from '@/lib/canonical/prompt';
 import type { SourceContext } from '@/lib/canonical/adapters/types';
-import { useAppStore } from '@/store';
+import { useAppStore, type ModelKey } from '@/store';
 import type { GoldenValue } from '@/lib/dataset';
 import { evaluateDataset, runSemanticJudgeAndUplift } from '@/lib/evaluation';
 
 export interface RunResult {
   glm: ModelResult;
   gpt: ModelResult;
+  grok: ModelResult;
 }
 
 /**
- * Orchestrates the two live vision-model calls (GLM-5V-Turbo + GPT-5.4 mini) against
- * the active dataset's dynamic field schema. Each model runs independently based
- * on its enabled flag in the store; disabled models are skipped entirely (no API call,
- * no status mutation). The enabled calls fire in parallel and each model's raw JSON
- * is coerced to the golden field shape inside `api.ts`.
+ * Orchestrates live vision-model calls (GLM-5V-Turbo, GPT-5.4 mini, Grok 4.5)
+ * against the active dataset's dynamic field schema. Each model runs independently
+ * based on its enabled flag in the store; disabled models are skipped entirely
+ * (no API call, no status mutation). The enabled calls fire in parallel and each
+ * model's raw JSON is coerced to the golden field shape inside `api.ts`.
  *
  * Results stream in independently: each model commits its own store slice (and thus
  * its column's loading → done/error transition) the moment its own response resolves.
@@ -40,9 +42,11 @@ export function useExtraction() {
   const customContexts = useAppStore((s) => s.customContexts);
   const zaiKey = useAppStore((s) => s.zaiKey);
   const openaiKey = useAppStore((s) => s.openaiKey);
+  const xaiKey = useAppStore((s) => s.xaiKey);
   const enabledModels = useAppStore((s) => s.enabledModels);
   const setGlm = useAppStore((s) => s.setGlm);
   const setGpt = useAppStore((s) => s.setGpt);
+  const setGrok = useAppStore((s) => s.setGrok);
 
   const run = useCallback(
     async (signal?: AbortSignal): Promise<Partial<RunResult>> => {
@@ -62,7 +66,13 @@ export function useExtraction() {
       // Metric config at run start (judge uses the same map as the comparison UI).
       const configMap = useAppStore.getState().metricConfigs[active.id] ?? {};
 
-      const allConfigs: Array<{ key: 'glm' | 'gpt'; cfg: VisionConfig }> = [
+      const setters: Record<ModelKey, (r: ModelResult) => void> = {
+        glm: setGlm,
+        gpt: setGpt,
+        grok: setGrok,
+      };
+
+      const allConfigs: Array<{ key: ModelKey; cfg: VisionConfig }> = [
         {
           key: 'glm',
           cfg: {
@@ -83,14 +93,25 @@ export function useExtraction() {
             ...GPT_PRICING,
           },
         },
+        {
+          key: 'grok',
+          cfg: {
+            modelId: 'grok-4.5',
+            label: 'Grok 4.5',
+            endpoint: 'https://api.x.ai/v1/chat/completions',
+            apiKey: xaiKey,
+            ...GROK_PRICING,
+          },
+        },
       ];
 
       const configs = allConfigs.filter(({ key }) => enabledModels[key]);
       if (configs.length === 0) return {};
 
       // Only set loading state for the models we're actually running.
-      if (enabledModels.glm) setGlm(loadingResult('glm-5v-turbo', 'GLM-5V-Turbo'));
-      if (enabledModels.gpt) setGpt(loadingResult('gpt-5.4-mini', 'GPT-5.4 mini'));
+      for (const { key, cfg } of configs) {
+        setters[key](loadingResult(cfg.modelId, cfg.label));
+      }
 
       const result: Partial<RunResult> = {};
 
@@ -98,14 +119,9 @@ export function useExtraction() {
       // moment its own response resolves, so a slow model never blocks the
       // display of a faster one. There is no Promise.all-style barrier gating
       // when results become visible — each task self-commits its own column.
-      const commit = (key: 'glm' | 'gpt', value: ModelResult) => {
-        if (key === 'glm') {
-          setGlm(value);
-          result.glm = value;
-        } else {
-          setGpt(value);
-          result.gpt = value;
-        }
+      const commit = (key: ModelKey, value: ModelResult) => {
+        setters[key](value);
+        result[key] = value;
       };
 
       const tasks = configs.map(async ({ key, cfg }) => {
@@ -169,7 +185,7 @@ export function useExtraction() {
 
       return result;
     },
-    [active, customContexts, zaiKey, openaiKey, enabledModels, setGlm, setGpt]
+    [active, customContexts, zaiKey, openaiKey, xaiKey, enabledModels, setGlm, setGpt, setGrok]
   );
 
   return { run };
