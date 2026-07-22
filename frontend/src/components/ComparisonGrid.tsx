@@ -39,10 +39,10 @@ export function ComparisonGrid() {
   const scores = useMemo(() => {
     if (!golden) return { glm: 0, gpt: 0 };
     return {
-      glm: scoreDataset(glm.data, golden, configMap).accuracy,
-      gpt: scoreDataset(gpt.data, golden, configMap).accuracy,
+      glm: scoreDataset(glm.data, golden, configMap, glm.judgeResults).extractionScore,
+      gpt: scoreDataset(gpt.data, golden, configMap, gpt.judgeResults).extractionScore,
     };
-  }, [golden, glm.data, gpt.data, configMap]);
+  }, [golden, glm.data, glm.judgeResults, gpt.data, gpt.judgeResults, configMap]);
 
   // Only enabled + done models participate in the BEST badge.
   const doneModels: Array<'glm' | 'gpt'> = [];

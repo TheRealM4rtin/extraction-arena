@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2, Scale } from 'lucide-react';
 import { AccuracyScore } from './AccuracyScore';
 import { JsonViewer } from './JsonViewer';
 import { FieldDiffList } from './FieldDiff';
@@ -25,14 +25,21 @@ export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProp
   const golden = useAppStore((s) => s.active?.golden ?? null);
   const configMap = useActiveEvalConfigMap();
 
+  // Re-score with current config; re-apply cached judge verdicts (no LLM).
   const score = useMemo(
-    () => (golden ? scoreDataset(result.data, golden, configMap) : null),
-    [golden, result.data, configMap]
+    () =>
+      golden
+        ? scoreDataset(result.data, golden, configMap, result.judgeResults)
+        : null,
+    [golden, result.data, result.judgeResults, configMap]
   );
   const loading = result.status === 'loading';
   const done = result.status === 'done';
   const error = result.status === 'error';
+  const judging = done && result.judgeStatus === 'judging';
   const issueCount = (result.validationIssues ?? []).filter((i) => i.level === 'error').length;
+  const extractionPct = score?.extractionScore ?? 0;
+  const upliftCount = score?.judgeUpliftCount ?? 0;
 
   return (
     <motion.div
@@ -41,21 +48,37 @@ export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProp
       transition={{ delay: index * 0.1, duration: 0.5, ease: 'easeOut' }}
       className={cn(
         'flex flex-col px-3 pb-4 pt-3 transition-shadow duration-500',
-        isWinner && done && score && score.accuracy > 0 && 'shadow-[0_0_40px_-8px_var(--winner-glow)]'
+        isWinner && done && score && extractionPct > 0 && 'shadow-[0_0_40px_-8px_var(--winner-glow)]'
       )}
       style={{ '--winner-glow': `${accent}cc` } as React.CSSProperties}
     >
       <div className="my-1 flex flex-col items-center">
         <AccuracyScore
-          accuracy={done && score ? score.accuracy : 0}
+          accuracy={done && score ? extractionPct : 0}
           accent={accent}
           size={160}
           active={done && !!score}
+          label="Extraction"
         />
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className="mt-1 text-center text-xs text-muted-foreground">
           {score ? `${score.matched}/${score.total} exact` : '—'}
           {score ? ` · ${score.partialAccuracy}% partial` : ''}
+          {upliftCount > 0 ? ` · ${upliftCount} judged ↑` : ''}
         </p>
+        {judging && (
+          <p className="mt-0.5 flex items-center gap-1 text-[10px] text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Semantic review…
+          </p>
+        )}
+        {result.judgeStatus === 'error' && result.judgeError && (
+          <p
+            className="mt-0.5 max-w-[14rem] truncate text-center text-[10px] text-amber-400/90"
+            title={result.judgeError}
+          >
+            Judge skipped (det scores kept)
+          </p>
+        )}
       </div>
 
       <div className="mb-3 mt-2 flex flex-wrap items-center justify-center gap-1.5">
@@ -76,6 +99,16 @@ export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProp
           >
             <AlertTriangle className="mr-1 h-3 w-3" />
             {issueCount}
+          </Badge>
+        )}
+        {done && (result.judgeStatus === 'done' || upliftCount > 0) && (
+          <Badge
+            variant="outline"
+            title="Semantic judge (gpt-5.4-nano) reviewed weak fields vs gold"
+            className="border-border bg-background/60 font-mono text-[11px]"
+          >
+            <Scale className="mr-1 h-3 w-3" />
+            {upliftCount > 0 ? `${upliftCount}↑` : 'judge'}
           </Badge>
         )}
       </div>

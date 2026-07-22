@@ -69,19 +69,19 @@ interface AppState {
   setColumnOrder: (order: ColumnKey[]) => void;
 
   /**
-   * Per-field refcount of how many model columns currently have that field's
-   * diff pane open. A Ground Truth cell stays highlighted while its refcount
-   * is > 0 and resets to neutral once the last column closes the pane.
+   * Shared open field across all model columns. When set, every pipeline
+   * column expands that field's row and the matching Ground Truth cell
+   * highlights. `null` means nothing is expanded.
    */
-  openFieldRefs: Record<string, number>;
+  openFieldKey: string | null;
   /**
-   * The field most recently opened (refcount transitioned 0 → 1) plus a nonce
-   * that bumps on every such transition. GoldenColumn watches the nonce to
-   * scroll the matching Ground Truth cell into view when a pane is opened.
+   * The field most recently opened plus a nonce that bumps on every open
+   * (including switching A → B). GoldenColumn / FieldDiff rows watch the
+   * nonce to scroll the matching cell into view once.
    */
   expandedField: { key: string | null; nonce: number };
-  /** Register that a field's diff pane was opened (true) or closed (false). */
-  setFieldOpen: (key: string, open: boolean) => void;
+  /** Set or clear the globally expanded field (`null` closes). */
+  setOpenFieldKey: (key: string | null) => void;
 
   // Catalog actions
   loadCatalog: () => Promise<void>;
@@ -155,24 +155,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   columnOrder: [...DEFAULT_COLUMN_ORDER],
   setColumnOrder: (columnOrder) => set({ columnOrder }),
 
-  openFieldRefs: {},
+  openFieldKey: null,
   expandedField: { key: null, nonce: 0 },
-  setFieldOpen: (key, open) =>
+  setOpenFieldKey: (key) =>
     set((s) => {
-      const prev = s.openFieldRefs[key] ?? 0;
-      const next = Math.max(0, prev + (open ? 1 : -1));
-      const openFieldRefs = { ...s.openFieldRefs };
-      if (next <= 0) delete openFieldRefs[key];
-      else openFieldRefs[key] = next;
-      // Only emit a scroll trigger on a fresh open (refcount 0 → 1) so the
-      // matching Ground Truth cell scrolls into view once when first revealed.
-      if (open && prev === 0) {
-        return {
-          openFieldRefs,
-          expandedField: { key, nonce: s.expandedField.nonce + 1 },
-        };
+      if (key === null) {
+        return { openFieldKey: null };
       }
-      return { openFieldRefs };
+      // Opening (or switching fields) bumps the nonce so GT + model rows
+      // can scroll the matching cell into view once.
+      if (key === s.openFieldKey) {
+        return { openFieldKey: key };
+      }
+      return {
+        openFieldKey: key,
+        expandedField: { key, nonce: s.expandedField.nonce + 1 },
+      };
     }),
 
   loadCatalog: async () => {
@@ -309,6 +307,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       glm: idleModel('glm-5v-turbo', 'GLM-5V-Turbo'),
       gpt: idleModel('gpt-5.4-mini', 'GPT-5.4 mini'),
+      openFieldKey: null,
     }),
 
   toggleModel: (key) =>
