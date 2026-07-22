@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Check, Filter, ListOrdered, Network, X } from 'lucide-react';
-import { useAppStore, type ModelKey } from '@/store';
+import { useAppStore, MODEL_KEYS, type ModelKey } from '@/store';
 import { humanLabel, type GoldenValue } from '@/lib/dataset';
 import { aggregateRows, buildDashboardRows, type PRF } from '@/lib/metrics';
 import { scoreDataset } from '@/lib/scoring';
@@ -50,7 +50,25 @@ const VIEW_META: Record<View, ViewMeta> = {
     ring: 'shadow-[inset_0_0_0_1px_rgb(var(--gpt)_/_0.3)]',
     accent: '#8B5CF6',
   },
+  grok: {
+    id: 'grok',
+    label: 'Grok 4.5',
+    active: 'border-grok/50 bg-grok/10 text-grok',
+    ring: 'shadow-[inset_0_0_0_1px_rgb(var(--grok)_/_0.3)]',
+    accent: '#F43F5E',
+  },
 };
+
+/** First available per-model evaluation on a dashboard row (stable model order). */
+function firstEvalForAvg(row: {
+  evaluationsByModel?: Record<string, FieldEvaluation>;
+}): FieldEvaluation | undefined {
+  for (const key of MODEL_KEYS) {
+    const ev = row.evaluationsByModel?.[key];
+    if (ev) return ev;
+  }
+  return undefined;
+}
 
 /**
  * Evaluation detail dashboard: same engine as the main comparison UI, with
@@ -60,6 +78,7 @@ export function DashboardPage() {
   const active = useAppStore((s) => s.active);
   const glm = useAppStore((s) => s.glm);
   const gpt = useAppStore((s) => s.gpt);
+  const grok = useAppStore((s) => s.grok);
   const metricConfigs = useAppStore((s) => s.metricConfigs);
 
   const [view, setView] = useState<View>('avg');
@@ -69,19 +88,33 @@ export function DashboardPage() {
     [active, metricConfigs]
   );
 
+  const resultsByKey = useMemo(
+    () => ({ glm, gpt, grok }),
+    [glm, gpt, grok]
+  );
+
   const modelEvals = useMemo(() => {
-    if (!active) return { glm: null, gpt: null };
-    return {
-      glm:
-        glm.status === 'done'
-          ? scoreDataset(glm.data, active.golden, configMap, glm.judgeResults).evaluation ?? null
-          : null,
-      gpt:
-        gpt.status === 'done'
-          ? scoreDataset(gpt.data, active.golden, configMap, gpt.judgeResults).evaluation ?? null
-          : null,
+    const empty: Record<ModelKey, ReturnType<typeof scoreDataset>['evaluation'] | null> = {
+      glm: null,
+      gpt: null,
+      grok: null,
     };
-  }, [active, glm, gpt, configMap]);
+    if (!active) return empty;
+    const out = { ...empty };
+    for (const key of MODEL_KEYS) {
+      const r = resultsByKey[key];
+      out[key] =
+        r.status === 'done'
+          ? scoreDataset(r.data, active.golden, configMap, r.judgeResults).evaluation ?? null
+          : null;
+    }
+    return out;
+  }, [active, resultsByKey, configMap]);
+
+  const doneKeys = useMemo(
+    () => MODEL_KEYS.filter((k) => modelEvals[k] !== null),
+    [modelEvals]
+  );
 
   const rows = useMemo(() => {
     if (!active) return [];
@@ -90,11 +123,11 @@ export function DashboardPage() {
       data: Record<string, GoldenValue>;
       judgeResults?: typeof glm.judgeResults;
     }> = [];
-    if (glm.status === 'done') {
-      modelResults.push({ id: 'glm', data: glm.data, judgeResults: glm.judgeResults });
-    }
-    if (gpt.status === 'done') {
-      modelResults.push({ id: 'gpt', data: gpt.data, judgeResults: gpt.judgeResults });
+    for (const key of MODEL_KEYS) {
+      const r = resultsByKey[key];
+      if (r.status === 'done') {
+        modelResults.push({ id: key, data: r.data, judgeResults: r.judgeResults });
+      }
     }
     return buildDashboardRows(
       Object.keys(active.golden.golden_extraction),
@@ -102,46 +135,48 @@ export function DashboardPage() {
       modelResults,
       configMap
     );
-  }, [active, glm, gpt, configMap]);
+  }, [active, resultsByKey, configMap]);
 
-  const anyDone = glm.status === 'done' || gpt.status === 'done';
+  const anyDone = doneKeys.length > 0;
   const availableViews = useMemo(() => {
     const views: View[] = [];
     if (anyDone) views.push('avg');
-    if (glm.status === 'done') views.push('glm');
-    if (gpt.status === 'done') views.push('gpt');
+    for (const key of doneKeys) views.push(key);
     return views;
-  }, [anyDone, glm.status, gpt.status]);
+  }, [anyDone, doneKeys]);
 
   const effectiveView: View = availableViews.includes(view) ? view : 'avg';
   const summary = aggregateRows(rows, effectiveView);
   const meta = VIEW_META[effectiveView];
 
   const fieldEvalsForView: FieldEvaluation[] = useMemo(() => {
-    if (effectiveView === 'glm' && modelEvals.glm) return modelEvals.glm.perField;
-    if (effectiveView === 'gpt' && modelEvals.gpt) return modelEvals.gpt.perField;
-    if (modelEvals.glm && modelEvals.gpt) {
+    if (effectiveView !== 'avg' && modelEvals[effectiveView]) {
+      return modelEvals[effectiveView]!.perField;
+    }
+    if (doneKeys.length >= 2) {
       return rows
         .filter((r) => r.hasData)
         .map((r) => {
-          const glmEv = r.evaluationsByModel?.glm;
-          const gptEv = r.evaluationsByModel?.gpt;
-          const base = glmEv ?? gptEv!;
+          const perModel = doneKeys
+            .map((k) => r.evaluationsByModel?.[k])
+            .filter((e): e is FieldEvaluation => Boolean(e));
+          const base = perModel[0]!;
           return {
             ...base,
-            match: Boolean(glmEv?.match && gptEv?.match),
-            partial: ((glmEv?.partial ?? 0) + (gptEv?.partial ?? 0)) / 2,
+            match: perModel.every((e) => e.match),
+            partial: perModel.reduce((s, e) => s + e.partial, 0) / perModel.length,
             precision: r.avg.precision,
             recall: r.avg.recall,
             f1: r.avg.f1,
           };
         });
     }
-    return modelEvals.glm?.perField ?? modelEvals.gpt?.perField ?? [];
-  }, [effectiveView, modelEvals, rows]);
+    return doneKeys[0] ? (modelEvals[doneKeys[0]]?.perField ?? []) : [];
+  }, [effectiveView, modelEvals, rows, doneKeys]);
 
   const gateSummary = useMemo(() => {
-    const pack = (ev: NonNullable<typeof modelEvals.glm>) => ({
+    type Ev = NonNullable<(typeof modelEvals)[ModelKey]>;
+    const pack = (ev: Ev) => ({
       accuracy: ev.accuracy,
       partialAccuracy: ev.partialAccuracy,
       matched: ev.matched,
@@ -150,29 +185,31 @@ export function DashboardPage() {
       judgeUpliftCount: ev.judgeUpliftCount ?? 0,
       detAccuracy: ev.detAccuracy ?? ev.accuracy,
     });
-    if (effectiveView === 'glm' && modelEvals.glm) return pack(modelEvals.glm);
-    if (effectiveView === 'gpt' && modelEvals.gpt) return pack(modelEvals.gpt);
-    if (modelEvals.glm && modelEvals.gpt) {
+    if (effectiveView !== 'avg' && modelEvals[effectiveView]) {
+      return pack(modelEvals[effectiveView]!);
+    }
+    const done = doneKeys
+      .map((k) => modelEvals[k])
+      .filter((e): e is Ev => Boolean(e));
+    if (done.length >= 2) {
+      const n = done.length;
       return {
-        accuracy: Math.round((modelEvals.glm.accuracy + modelEvals.gpt.accuracy) / 2),
+        accuracy: Math.round(done.reduce((s, e) => s + e.accuracy, 0) / n),
         partialAccuracy: Math.round(
-          (modelEvals.glm.partialAccuracy + modelEvals.gpt.partialAccuracy) / 2
+          done.reduce((s, e) => s + e.partialAccuracy, 0) / n
         ),
-        matched: Math.round((modelEvals.glm.matched + modelEvals.gpt.matched) / 2),
-        total: modelEvals.glm.total,
+        matched: Math.round(done.reduce((s, e) => s + e.matched, 0) / n),
+        total: done[0]!.total,
         extractionScore: Math.round(
-          (modelEvals.glm.extractionScore + modelEvals.gpt.extractionScore) / 2
+          done.reduce((s, e) => s + e.extractionScore, 0) / n
         ),
-        judgeUpliftCount:
-          (modelEvals.glm.judgeUpliftCount ?? 0) + (modelEvals.gpt.judgeUpliftCount ?? 0),
+        judgeUpliftCount: done.reduce((s, e) => s + (e.judgeUpliftCount ?? 0), 0),
         detAccuracy: Math.round(
-          ((modelEvals.glm.detAccuracy ?? modelEvals.glm.accuracy) +
-            (modelEvals.gpt.detAccuracy ?? modelEvals.gpt.accuracy)) /
-            2
+          done.reduce((s, e) => s + (e.detAccuracy ?? e.accuracy), 0) / n
         ),
       };
     }
-    const single = modelEvals.glm ?? modelEvals.gpt;
+    const single = done[0];
     return single
       ? pack(single)
       : {
@@ -184,7 +221,7 @@ export function DashboardPage() {
           judgeUpliftCount: 0,
           detAccuracy: 0,
         };
-  }, [effectiveView, modelEvals]);
+  }, [effectiveView, modelEvals, doneKeys]);
 
   const hist = useMemo(
     () => histogramBins(fieldEvalsForView.map((f) => f.f1), 5),
@@ -223,11 +260,11 @@ export function DashboardPage() {
     return [...rows].sort((a, b) => {
       const aEv =
         effectiveView === 'avg'
-          ? a.evaluationsByModel?.glm ?? a.evaluationsByModel?.gpt
+          ? firstEvalForAvg(a)
           : a.evaluationsByModel?.[effectiveView];
       const bEv =
         effectiveView === 'avg'
-          ? b.evaluationsByModel?.glm ?? b.evaluationsByModel?.gpt
+          ? firstEvalForAvg(b)
           : b.evaluationsByModel?.[effectiveView];
       const aMetric =
         a.config.priority === 'precision'
@@ -250,9 +287,7 @@ export function DashboardPage() {
     effectiveView === 'avg' ? (row.hasData ? row.avg : undefined) : row.byModel[effectiveView];
 
   const evalFor = (row: (typeof rows)[number]): FieldEvaluation | undefined => {
-    if (effectiveView === 'avg') {
-      return row.evaluationsByModel?.glm ?? row.evaluationsByModel?.gpt;
-    }
+    if (effectiveView === 'avg') return firstEvalForAvg(row);
     return row.evaluationsByModel?.[effectiveView];
   };
 
