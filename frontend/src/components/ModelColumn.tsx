@@ -47,7 +47,7 @@ export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProp
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.1, duration: 0.5, ease: 'easeOut' }}
       className={cn(
-        'flex flex-col px-3 pb-4 pt-3 transition-shadow duration-500',
+        'flex min-w-0 flex-col px-3 pb-4 pt-3 transition-shadow duration-500',
         isWinner && done && score && extractionPct > 0 && 'shadow-[0_0_40px_-8px_var(--winner-glow)]'
       )}
       style={{ '--winner-glow': `${accent}cc` } as React.CSSProperties}
@@ -115,7 +115,7 @@ export function ModelColumn({ source, accent, index, isWinner }: ModelColumnProp
 
       <CostBars input={result.promptTokens} output={result.completionTokens} accent={accent} />
 
-      <div className="relative mt-3 flex-1">
+      <div className="relative mt-3 min-w-0 flex-1">
         <AnimatePresence mode="wait">
           {loading && <SkeletonBody key="skeleton" />}
           {error && <ErrorBody key="error" message={result.error ?? 'Request failed.'} accent={accent} />}
