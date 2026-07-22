@@ -57,6 +57,7 @@ export interface VisionConfig {
 // Per-model pricing estimates (labelled "est." in the UI). Update with live rates.
 export const GLM_PRICING = { inputPer1m: 0.5, outputPer1m: 1.5 };
 export const GPT_PRICING = { inputPer1m: 0.5, outputPer1m: 2.0 };
+export const GROK_PRICING = { inputPer1m: 2.0, outputPer1m: 10.0 };
 
 interface BackendResponse {
   dpi: number;
@@ -97,11 +98,11 @@ export async function convertPdfToPages(
   return { dpi: data.dpi, pages, pdfName: file.name };
 }
 /**
- * Call an OpenAI-compatible vision endpoint (Z.AI GLM-5V-Turbo or OpenAI gpt-5.4-mini).
- * Sends every page image + the canonical-schema-driven prompt. temperature: 0 and
- * response_format: json_object per the fixed integration spec. The raw model JSON
- * is normalized to a canonical draft, validated, then projected to the field map
- * the scorer consumes.
+ * Call an OpenAI-compatible vision endpoint (Z.AI GLM-5V-Turbo, OpenAI gpt-5.4-mini,
+ * or xAI grok-4.5). Sends every page image + the canonical-schema-driven prompt.
+ * temperature: 0 and response_format: json_object per the fixed integration spec.
+ * The raw model JSON is normalized to a canonical draft, validated, then projected
+ * to the field map the scorer consumes.
  */
 export async function callVisionModel(
   config: VisionConfig,
@@ -191,8 +192,8 @@ async function callVisionOnce(
   const res = await fetch('/api/llm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    // Route through the backend pass-through to avoid browser CORS: neither
-    // Z.AI nor OpenAI return CORS headers, so direct browser fetches can't read
+    // Route through the backend pass-through to avoid browser CORS: Z.AI, OpenAI,
+    // and xAI do not return CORS headers, so direct browser fetches can't read
     // the response. The backend forwards endpoint + Authorization verbatim.
     signal,
     body: JSON.stringify({

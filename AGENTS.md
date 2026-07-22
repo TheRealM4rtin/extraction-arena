@@ -1,6 +1,6 @@
 # AGENTS.md
 
-An LLM vision-model evaluation dashboard that compares GLM-5V-Turbo (Z.AI) and GPT-5.4 mini (OpenAI) against a per-document golden dataset. Built around first-responder rescue sheets (the seed dataset is the 4-page Tesla Cybertruck sheet). The app is built around a **canonical, versioned rescue-sheet JSON contract** (`rescue-sheet-ev-v1.1` — rich ISO-17840-style domain body + app envelope; v1.0 still migrates); arbitrary source/supplier/model JSON enters the system only through envelope-stamping / an adapter / VLM normalize into that contract.
+An LLM vision-model evaluation dashboard that compares GLM-5V-Turbo (Z.AI), GPT-5.4 mini (OpenAI), and Grok 4.5 (xAI) against a per-document golden dataset. Built around first-responder rescue sheets (the seed dataset is the 4-page Tesla Cybertruck sheet). The app is built around a **canonical, versioned rescue-sheet JSON contract** (`rescue-sheet-ev-v1.1` — rich ISO-17840-style domain body + app envelope; v1.0 still migrates); arbitrary source/supplier/model JSON enters the system only through envelope-stamping / an adapter / VLM normalize into that contract.
 
 ## Repository layout
 
@@ -14,7 +14,7 @@ Monorepo with **two independent Node projects** (each has its own `package.json`
 
 The **backend has two stateless routes:**
 - `POST /api/extract` — PDF→PNG conversion (multipart upload → base64 PNGs at 300 DPI).
-- `POST /api/llm` — a same-origin **pass-through proxy** for the vision calls. The frontend builds the OpenAI-compatible request (model, messages, prompt, images, `temperature`, `response_format`) and POSTs `{ endpoint, apiKey, payload }`; the backend forwards it verbatim and returns the upstream body. **This exists because of CORS:** neither Z.AI nor OpenAI send `Access-Control-Allow-Origin`, so a direct browser `fetch` can't read the response (Z.AI: request lands, response blocked → Safari's "Load failed") or fails the preflight (OpenAI: request never lands). Do not call the providers directly from the browser, and do not put LLM/scoring logic in the backend — it only forwards.
+- `POST /api/llm` — a same-origin **pass-through proxy** for the vision calls. The frontend builds the OpenAI-compatible request (model, messages, prompt, images, `temperature`, `response_format`) and POSTs `{ endpoint, apiKey, payload }`; the backend forwards it verbatim and returns the upstream body. **This exists because of CORS:** Z.AI, OpenAI, and xAI do not send `Access-Control-Allow-Origin`, so a direct browser `fetch` can't read the response (Z.AI: request lands, response blocked → Safari's "Load failed") or fails the preflight (OpenAI: request never lands). Do not call the providers directly from the browser, and do not put LLM/scoring logic in the backend — it only forwards.
 
 Keys still live client-side (`VITE_` env, editable in Settings) and are passed through the LLM proxy; the backend never stores them.
 
@@ -90,18 +90,19 @@ Both endpoints are OpenAI-compatible chat-completions with vision. For each call
 |---|---|---|
 | GLM-5V-Turbo | `https://api.z.ai/api/paas/v4/chat/completions` | `glm-5v-turbo` |
 | GPT-5.4 mini | `https://api.openai.com/v1/chat/completions` | `gpt-5.4-mini` |
+| Grok 4.5 | `https://api.x.ai/v1/chat/completions` | `grok-4.5` |
 
-Z.AI uses `Authorization: Bearer $ZAI_API_KEY` and is OpenAI-compatible — don't look for a separate SDK.
+Z.AI and xAI use `Authorization: Bearer $KEY` and are OpenAI-compatible — don't look for a separate SDK.
 
 ## Environment / security gotcha
 
-Keys use the `VITE_` prefix (`VITE_OPENAI_API_KEY`, `VITE_ZAI_API_KEY`). Vite exposes any `VITE_`-prefixed var to the browser bundle. This is **intentional** for this demo (frontend calls APIs directly). If you ever move calls server-side, drop the `VITE_` prefix so keys aren't shipped to the client.
+Keys use the `VITE_` prefix (`VITE_OPENAI_API_KEY`, `VITE_ZAI_API_KEY`, `VITE_XAI_API_KEY`). Vite exposes any `VITE_`-prefixed var to the browser bundle. This is **intentional** for this demo (frontend calls APIs directly). If you ever move calls server-side, drop the `VITE_` prefix so keys aren't shipped to the client.
 
 ## UI conventions (repo-specific)
 
 - **Dark mode is the default and only theme.** Backgrounds `#0A0A0F` / `#12121A`.
 - **Per-column accent colors are fixed and reused everywhere** (borders, glows, badges, JSON syntax highlighting, gauge fill):
-  - Ground Truth `#10B981` · GLM-5V-Turbo `#06B6D4` · GPT-5.4 mini `#8B5CF6`
+  - Ground Truth `#10B981` · GLM-5V-Turbo `#06B6D4` · GPT-5.4 mini `#8B5CF6` · Grok 4.5 `#F43F5E`
 - Columns always render left-to-right in that order.
 - Minimum font size **14px** (demo is recorded for mobile LinkedIn viewing).
 - All animations must complete within ~3–5s and stay smooth on a modern laptop — no particle systems, 3D, video, sound, or cursor trails.

@@ -9,7 +9,13 @@ import {
   transferColumnWidth,
 } from '@/lib/columnResize';
 import { scoreDataset } from '@/lib/scoring';
-import { useActiveEvalConfigMap, useAppStore, type ColumnKey, type ModelKey } from '@/store';
+import {
+  useActiveEvalConfigMap,
+  useAppStore,
+  MODEL_KEYS,
+  type ColumnKey,
+  type ModelKey,
+} from '@/store';
 import { cn } from '@/lib/utils';
 
 interface ColumnDef {
@@ -22,9 +28,15 @@ const COLUMN_MAP: Record<ColumnKey, ColumnDef> = {
   gt: { key: 'gt', label: 'Ground Truth', accent: '#10B981' },
   glm: { key: 'glm', label: 'GLM-5V-Turbo', accent: '#06B6D4' },
   gpt: { key: 'gpt', label: 'GPT-5.4 mini', accent: '#8B5CF6' },
+  grok: { key: 'grok', label: 'Grok 4.5', accent: '#F43F5E' },
 };
 
-const DEFAULT_WIDTHS: Record<ColumnKey, number> = { gt: 1, glm: 1, gpt: 1 };
+const DEFAULT_WIDTHS: Record<ColumnKey, number> = {
+  gt: 1,
+  glm: 1,
+  gpt: 1,
+  grok: 1,
+};
 
 /** Tailwind gap-3 = 0.75rem = 12px between columns. */
 const COLUMN_GAP_PX = 12;
@@ -39,6 +51,7 @@ const FLEX_VAR: Record<ColumnKey, `--fg-${ColumnKey}`> = {
   gt: '--fg-gt',
   glm: '--fg-glm',
   gpt: '--fg-gpt',
+  grok: '--fg-grok',
 };
 
 function widthsToCssVars(w: Record<ColumnKey, number>): React.CSSProperties {
@@ -46,6 +59,7 @@ function widthsToCssVars(w: Record<ColumnKey, number>): React.CSSProperties {
     [FLEX_VAR.gt]: w.gt,
     [FLEX_VAR.glm]: w.glm,
     [FLEX_VAR.gpt]: w.gpt,
+    [FLEX_VAR.grok]: w.grok,
   } as React.CSSProperties;
 }
 
@@ -71,16 +85,19 @@ interface ResizeSession {
   startWidths: Record<ColumnKey, number>;
 }
 
-/** 3-column comparison: Ground Truth, GLM-5V-Turbo, GPT-5.4 mini. */
+/** Comparison grid: Ground Truth + enabled vision models (GLM, GPT, Grok). */
 export function ComparisonGrid() {
   const glm = useAppStore((s) => s.glm);
   const gpt = useAppStore((s) => s.gpt);
+  const grok = useAppStore((s) => s.grok);
   const golden = useAppStore((s) => s.active?.golden ?? null);
   const configMap = useActiveEvalConfigMap();
   const enabledModels = useAppStore((s) => s.enabledModels);
   const toggleModel = useAppStore((s) => s.toggleModel);
   const columnOrder = useAppStore((s) => s.columnOrder);
   const setColumnOrder = useAppStore((s) => s.setColumnOrder);
+
+  const resultsByKey: Record<ModelKey, typeof glm> = { glm, gpt, grok };
 
   const [widths, setWidths] = useState<Record<ColumnKey, number>>(DEFAULT_WIDTHS);
   /** True while a resize drag is active — disables Framer layout projection. */
@@ -92,19 +109,31 @@ export function ComparisonGrid() {
   const isResizingRef = useRef(false);
 
   const scores = useMemo(() => {
-    if (!golden) return { glm: 0, gpt: 0 };
+    if (!golden) {
+      return { glm: 0, gpt: 0, grok: 0 } as Record<ModelKey, number>;
+    }
     return {
       glm: scoreDataset(glm.data, golden, configMap, glm.judgeResults).extractionScore,
       gpt: scoreDataset(gpt.data, golden, configMap, gpt.judgeResults).extractionScore,
-    };
-  }, [golden, glm.data, glm.judgeResults, gpt.data, gpt.judgeResults, configMap]);
+      grok: scoreDataset(grok.data, golden, configMap, grok.judgeResults).extractionScore,
+    } satisfies Record<ModelKey, number>;
+  }, [
+    golden,
+    glm.data,
+    glm.judgeResults,
+    gpt.data,
+    gpt.judgeResults,
+    grok.data,
+    grok.judgeResults,
+    configMap,
+  ]);
 
   // Only enabled + done models participate in the BEST badge.
-  const doneModels: Array<'glm' | 'gpt'> = [];
-  if (enabledModels.glm && glm.status === 'done') doneModels.push('glm');
-  if (enabledModels.gpt && gpt.status === 'done') doneModels.push('gpt');
+  const doneModels = MODEL_KEYS.filter(
+    (m) => enabledModels[m] && resultsByKey[m].status === 'done'
+  );
 
-  let winner: 'glm' | 'gpt' | null = null;
+  let winner: ModelKey | null = null;
   if (doneModels.length > 0) {
     winner = doneModels.reduce((best, m) => (scores[m] > scores[best] ? m : best), doneModels[0]);
   }
@@ -219,11 +248,13 @@ export function ComparisonGrid() {
             onResizePointerDown={onResizePointerDown(i)}
           >
             {key === 'gt' && <GoldenColumn />}
-            {key === 'glm' && (
-              <ModelColumn source="glm" accent={col.accent} index={i} isWinner={winner === 'glm'} />
-            )}
-            {key === 'gpt' && (
-              <ModelColumn source="gpt" accent={col.accent} index={i} isWinner={winner === 'gpt'} />
+            {key !== 'gt' && (
+              <ModelColumn
+                source={key}
+                accent={col.accent}
+                index={i}
+                isWinner={winner === key}
+              />
             )}
           </ReorderableColumn>
         );

@@ -4,16 +4,17 @@ import type { ReactNode } from 'react';
  * Shared accent-class lookup used by `JsonViewer` and `FieldDiff`.
  *
  * Per-column accent text is rendered via the Tailwind tokens (`text-gt`,
- * `text-glm`, `text-gpt`, `text-ocr`) rather than an inline `style` so the
- * color flips to a light-mode-safe shade via the CSS variables in `index.css`.
- * `marker` is the highlighter style for differing words/items: a soft accent
- * background plus accent text. Literal class names live here so Tailwind's
- * content scanner picks them up.
+ * `text-glm`, `text-gpt`, `text-grok`, `text-ocr`) rather than an inline
+ * `style` so the color flips to a light-mode-safe shade via the CSS variables
+ * in `index.css`. `marker` is the highlighter style for differing words/items:
+ * a soft accent background plus accent text. Literal class names live here so
+ * Tailwind's content scanner picks them up.
  */
 const ACCENT_CLASSES: Record<string, { text: string; marker: string }> = {
   '#10B981': { text: 'text-gt', marker: 'bg-gt/20 text-gt' },
   '#06B6D4': { text: 'text-glm', marker: 'bg-glm/20 text-glm' },
   '#8B5CF6': { text: 'text-gpt', marker: 'bg-gpt/20 text-gpt' },
+  '#F43F5E': { text: 'text-grok', marker: 'bg-grok/20 text-grok' },
   '#F59E0B': { text: 'text-ocr', marker: 'bg-ocr/20 text-ocr' },
 };
 
