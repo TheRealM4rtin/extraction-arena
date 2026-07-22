@@ -1,8 +1,13 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, Reorder, useDragControls } from 'framer-motion';
 import { Star, GripVertical } from 'lucide-react';
 import { GoldenColumn } from './GoldenColumn';
 import { ModelColumn } from './ModelColumn';
+import {
+  MIN_COLUMN_FRACTION,
+  pixelDeltaToFraction,
+  transferColumnWidth,
+} from '@/lib/columnResize';
 import { scoreDataset } from '@/lib/scoring';
 import { useActiveEvalConfigMap, useAppStore, type ColumnKey, type ModelKey } from '@/store';
 import { cn } from '@/lib/utils';
@@ -21,6 +26,51 @@ const COLUMN_MAP: Record<ColumnKey, ColumnDef> = {
 
 const DEFAULT_WIDTHS: Record<ColumnKey, number> = { gt: 1, glm: 1, gpt: 1 };
 
+/** Tailwind gap-3 = 0.75rem = 12px between columns. */
+const COLUMN_GAP_PX = 12;
+
+/**
+ * CSS custom properties on the grid drive each column's flex-grow.
+ * During a drag we mutate these on the container DOM node (no React re-render),
+ * so neighbors reflow in the same frame. We never clear them to empty — that
+ * was the collapse regression.
+ */
+const FLEX_VAR: Record<ColumnKey, `--fg-${ColumnKey}`> = {
+  gt: '--fg-gt',
+  glm: '--fg-glm',
+  gpt: '--fg-gpt',
+};
+
+function widthsToCssVars(w: Record<ColumnKey, number>): React.CSSProperties {
+  return {
+    [FLEX_VAR.gt]: w.gt,
+    [FLEX_VAR.glm]: w.glm,
+    [FLEX_VAR.gpt]: w.gpt,
+  } as React.CSSProperties;
+}
+
+function applyWidthsToContainer(
+  el: HTMLElement,
+  w: Record<ColumnKey, number>
+) {
+  for (const key of Object.keys(FLEX_VAR) as ColumnKey[]) {
+    el.style.setProperty(FLEX_VAR[key], String(w[key]));
+  }
+}
+
+interface ResizeSession {
+  startX: number;
+  leftKey: ColumnKey;
+  rightKey: ColumnKey;
+  startLeft: number;
+  startRight: number;
+  usableWidthPx: number;
+  /** Full flex-fraction sum at drag start (for 1:1 px → fraction mapping). */
+  totalSum: number;
+  /** Snapshot of all widths at pointer-down so non-pair columns stay fixed. */
+  startWidths: Record<ColumnKey, number>;
+}
+
 /** 3-column comparison: Ground Truth, GLM-5V-Turbo, GPT-5.4 mini. */
 export function ComparisonGrid() {
   const glm = useAppStore((s) => s.glm);
@@ -33,8 +83,13 @@ export function ComparisonGrid() {
   const setColumnOrder = useAppStore((s) => s.setColumnOrder);
 
   const [widths, setWidths] = useState<Record<ColumnKey, number>>(DEFAULT_WIDTHS);
+  /** True while a resize drag is active — disables Framer layout projection. */
+  const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef<number | null>(null);
+  const widthsRef = useRef(widths);
+  widthsRef.current = widths;
+  const resizeSession = useRef<ResizeSession | null>(null);
+  const isResizingRef = useRef(false);
 
   const scores = useMemo(() => {
     if (!golden) return { glm: 0, gpt: 0 };
@@ -54,36 +109,83 @@ export function ComparisonGrid() {
     winner = doneModels.reduce((best, m) => (scores[m] > scores[best] ? m : best), doneModels[0]);
   }
 
+  // Window-level listeners: live widths go to CSS vars on the container (sync
+  // reflow, no React re-render of heavy column bodies). Commit to React state
+  // once on pointerup. Never clear the CSS vars.
+  useEffect(() => {
+    const onMove = (e: PointerEvent) => {
+      const session = resizeSession.current;
+      const container = containerRef.current;
+      if (!session || !container) return;
+      const deltaPx = e.clientX - session.startX;
+      const deltaFrac = pixelDeltaToFraction(
+        deltaPx,
+        session.usableWidthPx,
+        session.totalSum
+      );
+      const { left, right } = transferColumnWidth(
+        session.startLeft,
+        session.startRight,
+        deltaFrac,
+        MIN_COLUMN_FRACTION
+      );
+      const next = {
+        ...session.startWidths,
+        [session.leftKey]: left,
+        [session.rightKey]: right,
+      };
+      widthsRef.current = next;
+      // Direct CSS var writes — same-frame flex reflow, no setState lag.
+      container.style.setProperty(FLEX_VAR[session.leftKey], String(left));
+      container.style.setProperty(FLEX_VAR[session.rightKey], String(right));
+    };
+    const onUp = () => {
+      if (!resizeSession.current && !isResizingRef.current) return;
+      resizeSession.current = null;
+      isResizingRef.current = false;
+      // Single React commit with final fractions (CSS vars already match).
+      setWidths({ ...widthsRef.current });
+      setIsResizing(false);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+  }, []);
+
   const onResizePointerDown = (i: number) => (e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    dragging.current = i;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-  const onResizePointerMove = (e: React.PointerEvent) => {
-    if (dragging.current === null || !containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const total = rect.width;
-    const i = dragging.current;
     const leftKey = columnOrder[i];
     const rightKey = columnOrder[i + 1];
-    if (!leftKey || !rightKey) return;
-    const dx = e.clientX - rect.left;
-    const sum = Object.values(widths).reduce((a, b) => a + b, 0);
-    let cumulativeFrac = 0;
-    for (let k = 0; k <= i; k++) cumulativeFrac += widths[columnOrder[k]];
-    const leftEdgePx = (cumulativeFrac / sum) * total;
-    const move = ((dx - leftEdgePx) / total) * sum;
-    const next = { ...widths };
-    next[leftKey] = Math.max(0.4, next[leftKey] + move);
-    next[rightKey] = Math.max(0.4, next[rightKey] - move);
-    setWidths(next);
-  };
-  const onResizePointerUp = () => {
-    dragging.current = null;
-  };
+    if (!leftKey || !rightKey || !containerRef.current) return;
 
-  const total = Object.values(widths).reduce((a, b) => a + b, 0);
+    const rect = containerRef.current.getBoundingClientRect();
+    const gapTotal = COLUMN_GAP_PX * Math.max(0, columnOrder.length - 1);
+    const usableWidthPx = Math.max(1, rect.width - gapTotal);
+    const startWidths = { ...widthsRef.current };
+    const totalSum = Object.values(startWidths).reduce((a, b) => a + b, 0);
+
+    resizeSession.current = {
+      startX: e.clientX,
+      leftKey,
+      rightKey,
+      startLeft: startWidths[leftKey],
+      startRight: startWidths[rightKey],
+      usableWidthPx,
+      totalSum,
+      startWidths,
+    };
+    isResizingRef.current = true;
+    // Seed vars (already set via React style) and disable layout projection.
+    applyWidthsToContainer(containerRef.current, startWidths);
+    setIsResizing(true);
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
 
   return (
     <Reorder.Group
@@ -92,13 +194,11 @@ export function ComparisonGrid() {
       onReorder={setColumnOrder}
       as="div"
       ref={containerRef}
-      onPointerMove={onResizePointerMove}
-      onPointerUp={onResizePointerUp}
+      style={widthsToCssVars(widths)}
       className="relative flex h-[calc(100vh-184px)] min-h-[480px] gap-3 overflow-x-clip"
     >
       {columnOrder.map((key, i) => {
         const col = COLUMN_MAP[key];
-        const flex = `${(widths[key] / total) * 100}%`;
         const isLast = i === columnOrder.length - 1;
         const modelKey = key as ModelKey | 'gt';
         const isModel = modelKey !== 'gt';
@@ -108,7 +208,7 @@ export function ComparisonGrid() {
           <ReorderableColumn
             key={key}
             columnKey={key}
-            flex={flex}
+            isResizing={isResizing}
             index={i}
             isLast={isLast}
             label={col.label}
@@ -135,12 +235,16 @@ export function ComparisonGrid() {
 /**
  * A single reorderable comparison column. The drag handle in the header starts
  * a framer-motion drag via useDragControls; the resize handle on the right edge
- * (hidden for the last column in the current order) drives the width-fraction
- * resize logic which lives in the parent.
+ * drives width transfer in the parent.
+ *
+ * flex-grow is bound to a CSS variable on the grid (`var(--fg-*)`) so live
+ * resize can update the container without re-rendering column content.
+ * layout={false} during resize kills Framer position projection lag.
+ * We never blank flex-grow — that collapsed columns in an earlier attempt.
  */
 function ReorderableColumn({
   columnKey,
-  flex,
+  isResizing,
   index,
   isLast,
   label,
@@ -152,7 +256,7 @@ function ReorderableColumn({
   children,
 }: {
   columnKey: ColumnKey;
-  flex: string;
+  isResizing: boolean;
   index: number;
   isLast: boolean;
   label: string;
@@ -168,6 +272,8 @@ function ReorderableColumn({
     <Reorder.Item
       value={columnKey}
       as="div"
+      // Reorder.Item's public type omits `false`, but motion accepts it at runtime.
+      layout={(isResizing ? false : 'position') as 'position'}
       dragListener={false}
       dragControls={controls}
       dragMomentum={false}
@@ -176,7 +282,13 @@ function ReorderableColumn({
         zIndex: 50,
         boxShadow: '0 18px 48px -12px rgba(0,0,0,0.6)',
       }}
-      style={{ width: flex }}
+      style={{
+        // CSS var is set on the parent grid; unitless number works for flex-grow.
+        flexGrow: `var(${FLEX_VAR[columnKey]})` as unknown as number,
+        flexShrink: 1,
+        flexBasis: 0,
+        minWidth: 0,
+      }}
       className="relative flex min-w-0"
     >
       <div className="relative flex w-full min-w-0 flex-col">
@@ -297,7 +409,9 @@ function ColumnShell({
       </div>
       <div
         className={cn(
-          'min-h-0 flex-1 overflow-y-auto transition-opacity duration-300',
+          // overflow-x-hidden: avoid a dual-axis scrollbar corner (white square)
+          // on columns with long unwrapped field values (notably Ground Truth).
+          'min-h-0 flex-1 overflow-y-auto overflow-x-hidden transition-opacity duration-300',
           !enabled && 'pointer-events-none opacity-30 saturate-50'
         )}
       >
