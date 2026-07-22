@@ -3,9 +3,9 @@ import { Check, Filter, ListOrdered, Network, X } from 'lucide-react';
 import { useAppStore, type ModelKey } from '@/store';
 import { humanLabel, type GoldenValue } from '@/lib/dataset';
 import { aggregateRows, buildDashboardRows, type PRF } from '@/lib/metrics';
+import { scoreDataset } from '@/lib/scoring';
 import {
   aggregateBySection,
-  evaluateDataset,
   histogramBins,
   scoreBand,
   sortByPriority,
@@ -74,20 +74,28 @@ export function DashboardPage() {
     return {
       glm:
         glm.status === 'done'
-          ? evaluateDataset(glm.data, active.golden, configMap)
+          ? scoreDataset(glm.data, active.golden, configMap, glm.judgeResults).evaluation ?? null
           : null,
       gpt:
         gpt.status === 'done'
-          ? evaluateDataset(gpt.data, active.golden, configMap)
+          ? scoreDataset(gpt.data, active.golden, configMap, gpt.judgeResults).evaluation ?? null
           : null,
     };
   }, [active, glm, gpt, configMap]);
 
   const rows = useMemo(() => {
     if (!active) return [];
-    const modelResults: Array<{ id: string; data: Record<string, GoldenValue> }> = [];
-    if (glm.status === 'done') modelResults.push({ id: 'glm', data: glm.data });
-    if (gpt.status === 'done') modelResults.push({ id: 'gpt', data: gpt.data });
+    const modelResults: Array<{
+      id: string;
+      data: Record<string, GoldenValue>;
+      judgeResults?: typeof glm.judgeResults;
+    }> = [];
+    if (glm.status === 'done') {
+      modelResults.push({ id: 'glm', data: glm.data, judgeResults: glm.judgeResults });
+    }
+    if (gpt.status === 'done') {
+      modelResults.push({ id: 'gpt', data: gpt.data, judgeResults: gpt.judgeResults });
+    }
     return buildDashboardRows(
       Object.keys(active.golden.golden_extraction),
       active.golden.golden_extraction,
@@ -133,22 +141,17 @@ export function DashboardPage() {
   }, [effectiveView, modelEvals, rows]);
 
   const gateSummary = useMemo(() => {
-    if (effectiveView === 'glm' && modelEvals.glm) {
-      return {
-        accuracy: modelEvals.glm.accuracy,
-        partialAccuracy: modelEvals.glm.partialAccuracy,
-        matched: modelEvals.glm.matched,
-        total: modelEvals.glm.total,
-      };
-    }
-    if (effectiveView === 'gpt' && modelEvals.gpt) {
-      return {
-        accuracy: modelEvals.gpt.accuracy,
-        partialAccuracy: modelEvals.gpt.partialAccuracy,
-        matched: modelEvals.gpt.matched,
-        total: modelEvals.gpt.total,
-      };
-    }
+    const pack = (ev: NonNullable<typeof modelEvals.glm>) => ({
+      accuracy: ev.accuracy,
+      partialAccuracy: ev.partialAccuracy,
+      matched: ev.matched,
+      total: ev.total,
+      extractionScore: ev.extractionScore,
+      judgeUpliftCount: ev.judgeUpliftCount ?? 0,
+      detAccuracy: ev.detAccuracy ?? ev.accuracy,
+    });
+    if (effectiveView === 'glm' && modelEvals.glm) return pack(modelEvals.glm);
+    if (effectiveView === 'gpt' && modelEvals.gpt) return pack(modelEvals.gpt);
     if (modelEvals.glm && modelEvals.gpt) {
       return {
         accuracy: Math.round((modelEvals.glm.accuracy + modelEvals.gpt.accuracy) / 2),
@@ -157,17 +160,30 @@ export function DashboardPage() {
         ),
         matched: Math.round((modelEvals.glm.matched + modelEvals.gpt.matched) / 2),
         total: modelEvals.glm.total,
+        extractionScore: Math.round(
+          (modelEvals.glm.extractionScore + modelEvals.gpt.extractionScore) / 2
+        ),
+        judgeUpliftCount:
+          (modelEvals.glm.judgeUpliftCount ?? 0) + (modelEvals.gpt.judgeUpliftCount ?? 0),
+        detAccuracy: Math.round(
+          ((modelEvals.glm.detAccuracy ?? modelEvals.glm.accuracy) +
+            (modelEvals.gpt.detAccuracy ?? modelEvals.gpt.accuracy)) /
+            2
+        ),
       };
     }
     const single = modelEvals.glm ?? modelEvals.gpt;
     return single
-      ? {
-          accuracy: single.accuracy,
-          partialAccuracy: single.partialAccuracy,
-          matched: single.matched,
-          total: single.total,
-        }
-      : { accuracy: 0, partialAccuracy: 0, matched: 0, total: 0 };
+      ? pack(single)
+      : {
+          accuracy: 0,
+          partialAccuracy: 0,
+          matched: 0,
+          total: 0,
+          extractionScore: 0,
+          judgeUpliftCount: 0,
+          detAccuracy: 0,
+        };
   }, [effectiveView, modelEvals]);
 
   const hist = useMemo(
@@ -244,7 +260,7 @@ export function DashboardPage() {
     <div className="flex flex-col gap-3">
       <PageIntro
         title="Evaluation detail"
-        subtitle="Same evaluation engine as the comparison columns — gate accuracy, partial credit, and precision/recall, plus distributions."
+        subtitle="Same engine as the comparison columns — composed Extraction score (gate + partial + F1), optional semantic judge uplift on weak fields, and distributions."
       />
 
       <ModelSelector
@@ -467,7 +483,15 @@ function SummaryStrip({
   hasData,
 }: {
   summary: PRF & { count: number };
-  gate: { accuracy: number; partialAccuracy: number; matched: number; total: number };
+  gate: {
+    accuracy: number;
+    partialAccuracy: number;
+    matched: number;
+    total: number;
+    extractionScore: number;
+    judgeUpliftCount: number;
+    detAccuracy: number;
+  };
   view: View;
   hasData: boolean;
 }) {
@@ -480,11 +504,14 @@ function SummaryStrip({
         </span>
         <span className="font-mono text-[11px] text-muted-foreground">
           {hasData
-            ? `${gate.matched}/${gate.total} fields exact · mean of ${summary.count} fields`
+            ? `${gate.matched}/${gate.total} fields exact · mean of ${summary.count} fields${
+                gate.judgeUpliftCount > 0 ? ` · ${gate.judgeUpliftCount} judged ↑` : ''
+              }`
             : 'no results yet'}
         </span>
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-4">
+        <SummaryStat label="Extraction" value={gate.extractionScore / 100} has={hasData} />
         <SummaryStat label="Exact" value={gate.accuracy / 100} has={hasData} />
         <SummaryStat label="Partial" value={gate.partialAccuracy / 100} has={hasData} />
         <SummaryStat label="Precision" value={summary.precision} has={hasData && summary.count > 0} />

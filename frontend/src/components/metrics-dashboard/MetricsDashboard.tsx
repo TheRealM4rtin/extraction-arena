@@ -20,9 +20,9 @@ interface MetricsDashboardProps {
 
 type PageId = 'dashboard' | 'golden';
 
-const NAV: Array<{ id: PageId; label: string; icon: React.ReactNode; hint: string }> = [
-  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" />, hint: 'Same engine as main UI — KPIs, charts, fields' },
-  { id: 'golden', label: 'Golden Dataset', icon: <Database className="h-4 w-4" />, hint: 'Ground truth & evaluation config' },
+const NAV: Array<{ id: PageId; label: string; icon: React.ReactNode }> = [
+  { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" /> },
+  { id: 'golden', label: 'Golden Dataset', icon: <Database className="h-4 w-4" /> },
 ];
 
 /** Fullscreen Evaluation Dashboard. Same overlay/scroll-lock/Escape pattern as
@@ -174,7 +174,7 @@ function Sidebar({
               title={collapsed ? item.label : undefined}
               aria-current={active ? 'page' : undefined}
               className={cn(
-                'group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors',
+                'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors',
                 active
                   ? 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300 shadow-[inset_0_0_0_1px_rgb(6_182_212_/_0.25)]'
                   : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground',
@@ -183,12 +183,7 @@ function Sidebar({
             >
               <span className="shrink-0">{item.icon}</span>
               {!collapsed && (
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm font-semibold">{item.label}</span>
-                  <span className="truncate text-[10px] text-muted-foreground group-hover:text-foreground/70">
-                    {item.hint}
-                  </span>
-                </span>
+                <span className="truncate text-sm font-semibold">{item.label}</span>
               )}
             </button>
           );
