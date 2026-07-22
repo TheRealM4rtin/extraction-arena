@@ -139,6 +139,11 @@
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(var(--foreground) / 0.22);
   }
+  /* Default corner is a bright white square where both axes scroll (visible
+     on Ground Truth when long field values also force horizontal overflow). */
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }
 
 @layer utilities {
